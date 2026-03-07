@@ -1,0 +1,46 @@
+version: '3.8'
+
+services:
+  aurenix-db:
+    image: postgres:16-alpine
+    container_name: aurenix-postgres
+    environment:
+      - POSTGRES_DB=aurenix_db
+      - POSTGRES_USER=aurenix
+      - POSTGRES_PASSWORD=aurenix_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aurenix -d aurenix_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  web-portal:
+    build:
+      context: ./aurenix-monorepo
+      dockerfile: ./apps/web-portal/Dockerfile
+    container_name: aurenix-web-portal
+    ports:
+      - "3000:3000"
+    environment:
+      - DATABASE_URL=postgresql://aurenix:aurenix_password@aurenix-db:5432/aurenix_db?schema=public
+      - TEMPORAL_ADDRESS=temporal-server:7233
+    depends_on:
+      aurenix-db:
+        condition: service_healthy
+
+  agent-worker:
+    build:
+      context: ./aurenix-monorepo/apps/agent-worker
+    container_name: aurenix-agent-worker
+    environment:
+      - TEMPORAL_ADDRESS=temporal-server:7233
+      - DATABASE_URL=postgresql://aurenix:aurenix_password@aurenix-db:5432/aurenix_db?schema=public
+    depends_on:
+      - aurenix-db
+
+volumes:
+  postgres_data:

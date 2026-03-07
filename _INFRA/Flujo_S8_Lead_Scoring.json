@@ -1,0 +1,92 @@
+{
+  "name": "S8: Lead Scoring y Enriquecimiento (AI Demand Gen)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "lead-webhook",
+        "options": {}
+      },
+      "id": "1",
+      "name": "Webhook (Lead Form)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [0, 200]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.apollo.io/v1/people/match",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Cache-Control", "value": "no-cache" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "email", "value": "={{$json.body.email}}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "2",
+      "name": "Apollo.io Enriquecimiento",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [220, 200]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "Evalúa este Lead B2B: Empresa: {{$json.person.organization.name}}, Puesto: {{$json.person.title}}, Empleados: {{$json.person.organization.estimated_num_employees}}",
+        "options": {
+          "systemMessage": "Eres un AI BDR. Calcula un 'Lead Score' del 0 al 100 para vender servicios SaaS/n8n. Puestos C-Level = +30. Empresa de software = +20. Devuelve JSON: {\"score\": 85, \"category\": \"Hot\", \"reason\": \"...\"}"
+        }
+      },
+      "id": "3",
+      "name": "Groq Lead Scoring",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.4,
+      "position": [440, 200]
+    },
+    {
+      "parameters": {
+        "modelName": "llama3-8b-8192"
+      },
+      "id": "4",
+      "name": "Llama 3 (Groq)",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
+      "typeVersion": 1,
+      "position": [440, 400]
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "table": "Table1",
+        "columns": "Email,Score,Category,Reason",
+        "options": {}
+      },
+      "id": "5",
+      "name": "Airtable / Supabase Insert",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 1,
+      "position": [660, 200]
+    }
+  ],
+  "connections": {
+    "Webhook (Lead Form)": {
+      "main": [ [ { "node": "Apollo.io Enriquecimiento", "type": "main", "index": 0 } ] ]
+    },
+    "Apollo.io Enriquecimiento": {
+      "main": [ [ { "node": "Groq Lead Scoring", "type": "main", "index": 0 } ] ]
+    },
+    "Groq Lead Scoring": {
+      "main": [ [ { "node": "Airtable / Supabase Insert", "type": "main", "index": 0 } ] ]
+    },
+    "Llama 3 (Groq)": {
+      "ai_languageModel": [ [ { "node": "Groq Lead Scoring", "type": "ai_languageModel", "index": 0 } ] ]
+    }
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ssh:*)",
+      "Bash(/c/Users/Usuario/AppData/Local/Programs/Python/Python314/python:*)",
+      "Bash(cp:*)",
+      "Bash(ls:*)",
+      "Bash(echo:*)",
+      "Bash(curl:*)",
+      "Bash(__NEW_LINE_9f704a8834d5094e__:*)",
+      "Bash(python:*)",
+      "Bash(__NEW_LINE_ccf72f3733267c49__ python:*)",
+      "Bash(__NEW_LINE_60a43880c6ef8273__ python:*)",
+      "Bash(__NEW_LINE_c4f18729e0f88836__ echo:*)",
+      "Bash(echo Saved:*)",
+      "Bash(grep:*)",
+      "Bash(node_modules/.bin/next build:*)",
+      "Bash(pnpm install:*)",
+      "Bash(npm list:*)",
+      "Bash(npx pnpm:*)",
+      "Bash(npx:*)",
+      "Bash(source:*)",
+      "WebFetch(domain:console.groq.com)",
+      "Bash(wc:*)",
+      "Bash(ssh vps-aurenix:*)",
+      "Bash(node:*)",
+      "Bash(fnm list:*)",
+      "Bash(fnm install:*)",
+      "Bash(fnm use:*)",
+      "Bash(../../node_modules/.bin/next build:*)",
+      "Bash(rm:*)",
+      "Bash(npm run:*)",
+      "Bash(do:*)",
+      "Bash(npm install:*)",
+      "Bash(pnpm run:*)"
+    ]
+  }
+}

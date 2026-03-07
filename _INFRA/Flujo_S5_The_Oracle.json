@@ -1,0 +1,263 @@
+{
+  "name": "S5: THE ORACLE (Inteligencia Continua)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 6 * * *"
+            }
+          ]
+        }
+      },
+      "id": "1",
+      "name": "Cron (06:00 AM)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [0, 200]
+    },
+    {
+      "parameters": {
+        "url": "https://hnrss.org/newest?q=AI"
+      },
+      "id": "2",
+      "name": "RSS: HackerNews AI",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1,
+      "position": [220, 0]
+    },
+    {
+      "parameters": {
+        "url": "https://github.com/n8n-io/n8n/releases.atom"
+      },
+      "id": "3",
+      "name": "RSS: n8n Releases",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1,
+      "position": [220, 200]
+    },
+    {
+      "parameters": {
+        "url": "https://www.reddit.com/r/LocalLLaMA/new/.rss"
+      },
+      "id": "4",
+      "name": "RSS: LocalLLaMA",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1,
+      "position": [220, 400]
+    },
+    {
+      "parameters": {
+        "mode": "append"
+      },
+      "id": "5",
+      "name": "Merge Feeds",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2.1,
+      "position": [440, 200]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "Evalúa esta noticia: Título: {{$json.title}}, Extracto: {{$json.contentSnippet}}",
+        "options": {
+          "systemMessage": "Eres 'The Gatekeeper', IA de la Agencia AURENIX. Evalúa si la noticia es altamente relevante para una agencia B2B que implementa n8n, LLMs y RAG. Responde SOLO en JSON con este formato exacto: {\"score\": un_numero_del_0_al_10, \"relevant\": true_o_false, \"reason\": \"breve explicacion\"}"
+        }
+      },
+      "id": "6",
+      "name": "Triage AI (Groq 8B)",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.4,
+      "position": [660, 200]
+    },
+    {
+      "parameters": {
+        "modelName": "llama3-8b-8192",
+        "options": {
+          "temperature": 0.1
+        }
+      },
+      "id": "7",
+      "name": "Groq Llama3 8B",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
+      "typeVersion": 1,
+      "position": [660, 400],
+      "credentials": {
+        "groqApi": {
+          "id": "GROQ_API_ID_AQUI",
+          "name": "Groq account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "try {\n  const evaluation = JSON.parse($input.item.json.text);\n  return { ...$input.item.json, ...evaluation };\n} catch (e) {\n  return { ...$input.item.json, score: 0, relevant: false, reason: 'Error parsing JSON' };\n}"
+      },
+      "id": "8",
+      "name": "Extraer JSON",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [880, 200]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$json.relevant}}",
+              "value2": true
+            }
+          ],
+          "number": [
+            {
+              "value1": "={{$json.score}}",
+              "operation": "largerEqual",
+              "value2": 7
+            }
+          ]
+        },
+        "combineOperation": "all"
+      },
+      "id": "9",
+      "name": "Score >= 7?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1100, 200]
+    },
+    {
+      "parameters": {
+        "url": "=https://r.jina.ai/{{$json.link}}",
+        "options": {}
+      },
+      "id": "10",
+      "name": "Jina Reader (Deep Extract)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1320, 100]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "Analiza el artículo completo: {{$json.data}}",
+        "options": {
+          "systemMessage": "Eres 'The Scholar', el analista técnico senior de AURENIX. Procesa este artículo y extrae: 1) TL;DR (Problema/Solución), 2) Oportunidad de Negocio B2B, 3) Complejidad Técnica. Devuelve un texto en Markdown bien formateado, listo para enviar y almacenar."
+        }
+      },
+      "id": "11",
+      "name": "Deep Summary (Groq 70B)",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.4,
+      "position": [1540, 100]
+    },
+    {
+      "parameters": {
+        "modelName": "llama3-70b-8192",
+        "options": {
+          "temperature": 0.2
+        }
+      },
+      "id": "12",
+      "name": "Groq Llama3 70B",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
+      "typeVersion": 1,
+      "position": [1540, 300],
+      "credentials": {
+        "groqApi": {
+          "id": "GROQ_API_ID_AQUI",
+          "name": "Groq account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "TEL_CHAT_ID_AQUI",
+        "text": "=🔮 *S5 THE ORACLE - Alerta Ejecutiva*\n\n*Noticia:* {{$item(0).$node[\"Jina Reader (Deep Extract)\"].json[\"title\"] | \"Sin título\"}}\n\n{{$json.text}}",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "13",
+      "name": "Telegram (Alerta)",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [1760, 0],
+      "credentials": {
+        "telegramApi": {
+          "id": "TEL_API_ID_AQUI",
+          "name": "Telegram bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "insert",
+        "qdrantCollection": "AURENIX_AGENCY_KNOWLEDGE",
+        "options": {}
+      },
+      "id": "14",
+      "name": "Qdrant Vector Store",
+      "type": "@n8n/n8n-nodes-langchain.vectorStoreQdrant",
+      "typeVersion": 1,
+      "position": [1760, 200],
+      "credentials": {
+        "qdrantApi": {
+          "id": "QDRANT_API_ID_AQUI",
+          "name": "Qdrant Api"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Cron (06:00 AM)": {
+      "main": [
+        [
+          { "node": "RSS: HackerNews AI", "type": "main", "index": 0 },
+          { "node": "RSS: n8n Releases", "type": "main", "index": 0 },
+          { "node": "RSS: LocalLLaMA", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "RSS: HackerNews AI": {
+      "main": [ [ { "node": "Merge Feeds", "type": "main", "index": 0 } ] ]
+    },
+    "RSS: n8n Releases": {
+      "main": [ [ { "node": "Merge Feeds", "type": "main", "index": 0 } ] ]
+    },
+    "RSS: LocalLLaMA": {
+      "main": [ [ { "node": "Merge Feeds", "type": "main", "index": 0 } ] ]
+    },
+    "Merge Feeds": {
+      "main": [ [ { "node": "Triage AI (Groq 8B)", "type": "main", "index": 0 } ] ]
+    },
+    "Triage AI (Groq 8B)": {
+      "main": [ [ { "node": "Extraer JSON", "type": "main", "index": 0 } ] ]
+    },
+    "Groq Llama3 8B": {
+      "ai_languageModel": [ [ { "node": "Triage AI (Groq 8B)", "type": "ai_languageModel", "index": 0 } ] ]
+    },
+    "Extraer JSON": {
+      "main": [ [ { "node": "Score >= 7?", "type": "main", "index": 0 } ] ]
+    },
+    "Score >= 7?": {
+      "main": [
+        [ { "node": "Jina Reader (Deep Extract)", "type": "main", "index": 0 } ]
+      ]
+    },
+    "Jina Reader (Deep Extract)": {
+      "main": [ [ { "node": "Deep Summary (Groq 70B)", "type": "main", "index": 0 } ] ]
+    },
+    "Deep Summary (Groq 70B)": {
+      "main": [
+        [
+          { "node": "Telegram (Alerta)", "type": "main", "index": 0 },
+          { "node": "Qdrant Vector Store", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Groq Llama3 70B": {
+      "ai_languageModel": [ [ { "node": "Deep Summary (Groq 70B)", "type": "ai_languageModel", "index": 0 } ] ]
+    }
+  }
+}

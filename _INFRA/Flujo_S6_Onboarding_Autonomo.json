@@ -1,0 +1,80 @@
+{
+  "name": "S6: Onboarding Técnico de Clientes (Autonomous Integration)",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "typeform-onboarding-webhook",
+        "options": {}
+      },
+      "id": "1",
+      "name": "Typeform Webhook (Ingesta)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [0, 200]
+    },
+    {
+      "parameters": {
+        "operation": "create",
+        "name": "={{$json.body.company_name}} - Proyecto B2B",
+        "parents": ["DIR_RAIZ_AURENIX_CLIENTS"],
+        "options": {}
+      },
+      "id": "2",
+      "name": "Google Drive (Crear Directorio)",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 2,
+      "position": [220, 200]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "Briefing crudo del cliente: {{$json.body.long_description}}",
+        "options": {
+          "systemMessage": "Convierte las respuestas de este formulario B2B en un 'Technical Briefing' en Markdown con: Objetivos, Riesgos Técnicos, y APIs requeridas."
+        }
+      },
+      "id": "3",
+      "name": "LLM (Generar Brief)",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.4,
+      "position": [440, 200]
+    },
+    {
+      "parameters": {
+        "modelName": "llama3-70b-8192"
+      },
+      "id": "4",
+      "name": "Llama 3 70B",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
+      "typeVersion": 1,
+      "position": [440, 400]
+    },
+    {
+      "parameters": {
+        "resource": "slack",
+        "operation": "postActivity",
+        "channel": "C01AUB2",
+        "text": "=🚀 *Nuevo Cliente B2B Onboarded*\nEmpresa: {{$node[\"Typeform Webhook (Ingesta)\"].json.body.company_name}}\nFolder Drive: Creado con ID {{$node[\"Google Drive (Crear Directorio)\"].json.id}}"
+      },
+      "id": "5",
+      "name": "Slack (Aviso Equipo)",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.1,
+      "position": [660, 200]
+    }
+  ],
+  "connections": {
+    "Typeform Webhook (Ingesta)": {
+      "main": [ [ { "node": "Google Drive (Crear Directorio)", "type": "main", "index": 0 } ] ]
+    },
+    "Google Drive (Crear Directorio)": {
+      "main": [ [ { "node": "LLM (Generar Brief)", "type": "main", "index": 0 } ] ]
+    },
+    "LLM (Generar Brief)": {
+      "main": [ [ { "node": "Slack (Aviso Equipo)", "type": "main", "index": 0 } ] ]
+    },
+    "Llama 3 70B": {
+      "ai_languageModel": [ [ { "node": "LLM (Generar Brief)", "type": "ai_languageModel", "index": 0 } ] ]
+    }
+  }
+}

@@ -1,0 +1,191 @@
+{
+  "name": "Agente IT M2M (Telegram -> SSH) - FIXED V3",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": [
+          "message"
+        ],
+        "additionalFields": {}
+      },
+      "id": "1",
+      "name": "Telegram Trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1,
+      "position": [
+        200,
+        300
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "TEL_API_ID_AQUI",
+          "name": "Telegram bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{$json.message.from.id}}",
+              "operation": "equal",
+              "value2": 987654321,
+              "name": "Es Jose"
+            },
+            {
+              "value1": "={{$json.message.from.id}}",
+              "operation": "equal",
+              "value2": 123456789,
+              "name": "Es Sebas"
+            }
+          ]
+        },
+        "combineOperation": "any"
+      },
+      "id": "2",
+      "name": "Zero Trust Filter (IDs)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        420,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{$json.message.text}}",
+        "options": {}
+      },
+      "id": "3",
+      "name": "Cerebro AI",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.4,
+      "position": [
+        640,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "modelName": "llama3-70b-8192",
+        "options": {
+          "temperature": 0.1
+        }
+      },
+      "id": "6",
+      "name": "Groq Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
+      "typeVersion": 1,
+      "position": [
+        640,
+        480
+      ],
+      "credentials": {
+        "groqApi": {
+          "id": "GROQ_API_ID_AQUI",
+          "name": "Groq account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "command": "={{$json.text}}",
+        "cwd": "/home/aurenix_it_agent"
+      },
+      "id": "4",
+      "name": "SSH Agent (Ejecutor)",
+      "type": "n8n-nodes-base.ssh",
+      "typeVersion": 1,
+      "position": [
+        900,
+        280
+      ],
+      "credentials": {
+        "sshPrivateKey": {
+          "id": "SSH_KEY_ID_AQUI",
+          "name": "aurenix_it_agent SSH"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{$node[\"Telegram Trigger\"].json[\"message\"][\"chat\"][\"id\"]}}",
+        "text": "={{$json.stdout}}\n\nError (si hay): {{$json.stderr}}",
+        "additionalFields": {}
+      },
+      "id": "5",
+      "name": "Telegram Respuesta",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [
+        1120,
+        280
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "TEL_API_ID_AQUI",
+          "name": "Telegram bot"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "Zero Trust Filter (IDs)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Zero Trust Filter (IDs)": {
+      "main": [
+        [
+          {
+            "node": "Cerebro AI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cerebro AI": {
+      "main": [
+        [
+          {
+            "node": "SSH Agent (Ejecutor)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SSH Agent (Ejecutor)": {
+      "main": [
+        [
+          {
+            "node": "Telegram Respuesta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Cerebro AI",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

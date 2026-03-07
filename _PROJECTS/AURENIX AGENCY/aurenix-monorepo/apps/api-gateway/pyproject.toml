@@ -1,0 +1,18 @@
+[tool.poetry]
+name = "api-gateway"
+version = "0.1.0"
+description = "FENIX API Gateway for Webhooks and External Integrations"
+authors = ["Aurenix Engineering <eng@aurenix.ai>"]
+package-mode = false
+
+[tool.poetry.dependencies]
+python = "^3.11"
+fastapi = "^0.109.0"
+uvicorn = "^0.27.0"
+redis = "^5.0.1"
+pydantic = "^2.6.0"
+temporalio = "^1.4.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

@@ -1,0 +1,105 @@
+{
+  "name": "S7: Facturación y Cobros Autónomos (Intelligent Billing Engine)",
+  "nodes": [
+    {
+      "parameters": {
+        "events": ["charge.succeeded"],
+        "options": {}
+      },
+      "id": "1",
+      "name": "Stripe Webhook (Ingesta)",
+      "type": "n8n-nodes-base.stripeTrigger",
+      "typeVersion": 1,
+      "position": [0, 200]
+    },
+    {
+      "parameters": {
+        "key": "stripe_billing_queue",
+        "value": "={{JSON.stringify($json)}}"
+      },
+      "id": "2",
+      "name": "Redis LPUSH",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [220, 200],
+      "notes": "Decoupling layer: Almacena rápido y responde 200 OK a Stripe."
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [{ "field": "minutes", "expression": 5 }]
+        }
+      },
+      "id": "3",
+      "name": "Worker Cron (Lógica)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [0, 500]
+    },
+    {
+      "parameters": {
+        "operation": "lpop",
+        "key": "stripe_billing_queue"
+      },
+      "id": "4",
+      "name": "Redis LPOP",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [220, 500]
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "email": "={{$json.data.object.billing_details.email}}"
+      },
+      "id": "5",
+      "name": "Check QuickBooks Customer",
+      "type": "n8n-nodes-base.quickbooks",
+      "typeVersion": 1,
+      "position": [440, 500],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "operation": "create",
+        "resource": "salesReceipt",
+        "email": "={{$json.data.object.billing_details.email}}",
+        "amount": "={{$node[\"Redis LPOP\"].json[\"data\"][\"object\"][\"amount\"] / 100}}"
+      },
+      "id": "6",
+      "name": "Create Sales Receipt",
+      "type": "n8n-nodes-base.quickbooks",
+      "typeVersion": 1,
+      "position": [660, 500]
+    },
+    {
+      "parameters": {
+        "chatId": "TEL_CHAT_ID",
+        "text": "=✅ *S7 Facturación Exitosa*\nEmail: {{$node[\"Redis LPOP\"].json[\"data\"][\"object\"][\"billing_details\"][\"email\"]}}\nMonto: ${{$node[\"Redis LPOP\"].json[\"data\"][\"object\"][\"amount\"] / 100}}\nSync: QuickBooks OK.",
+        "additionalFields": { "parse_mode": "Markdown" }
+      },
+      "id": "7",
+      "name": "Telegram (Notificación)",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [880, 500]
+    }
+  ],
+  "connections": {
+    "Stripe Webhook (Ingesta)": {
+      "main": [ [ { "node": "Redis LPUSH", "type": "main", "index": 0 } ] ]
+    },
+    "Worker Cron (Lógica)": {
+      "main": [ [ { "node": "Redis LPOP", "type": "main", "index": 0 } ] ]
+    },
+    "Redis LPOP": {
+      "main": [ [ { "node": "Check QuickBooks Customer", "type": "main", "index": 0 } ] ]
+    },
+    "Check QuickBooks Customer": {
+      "main": [ [ { "node": "Create Sales Receipt", "type": "main", "index": 0 } ] ]
+    },
+    "Create Sales Receipt": {
+      "main": [ [ { "node": "Telegram (Notificación)", "type": "main", "index": 0 } ] ]
+    }
+  }
+}

@@ -1,0 +1,7 @@
+langchain
+openai
+feedparser
+requests
+beautifulsoup4
+chromadb
+slack_sdk

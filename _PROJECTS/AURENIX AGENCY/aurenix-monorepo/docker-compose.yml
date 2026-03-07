@@ -1,0 +1,97 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: aurenix
+      POSTGRES_PASSWORD: aurenix_password
+      POSTGRES_DB: aurenix_db
+    ports:
+      - "54321:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  temporal:
+    image: temporalio/admin-tools:1.22.0
+    environment:
+      - TEMPORAL_ADDRESS=temporal-server:7233
+    depends_on:
+      - temporal-server
+
+  temporal-server:
+    image: temporalio/auto-setup:1.22.0
+    ports:
+      - "7233:7233"
+    environment:
+      - DB=postgresql
+      - DB_PORT=5432
+      - POSTGRES_USER=aurenix
+      - POSTGRES_PWD=aurenix_password
+      - POSTGRES_SEEDS=postgres
+    depends_on:
+      - postgres
+
+  temporal-worker:
+    build:
+      context: .
+      dockerfile: ./apps/temporal-worker/Dockerfile
+    env_file:
+      - ./apps/temporal-worker/.env
+    environment:
+      - TEMPORAL_ADDRESS=temporal-server:7233
+      - DATABASE_URL=postgresql://aurenix:aurenix_password@postgres:5432/aurenix_db?schema=public
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_KEY=${SUPABASE_KEY}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+    depends_on:
+      - temporal-server
+      - postgres
+
+  api-gateway:
+    build:
+      context: .
+      dockerfile: ./apps/api-gateway/Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - TEMPORAL_ADDRESS=temporal-server:7233
+    depends_on:
+      - redis
+      - temporal-server
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  web-portal:
+    build:
+      context: .
+      dockerfile: ./apps/web-portal/Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - DATABASE_URL=postgresql://aurenix:aurenix_password@postgres:5432/aurenix_db?schema=public
+      - TEMPORAL_ADDRESS=temporal-server:7233
+    depends_on:
+      - postgres
+      - temporal-worker
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: ./apps/dashboard/Dockerfile
+    ports:
+      - "3001:3001"
+    environment:
+      - N8N_API_URL=${N8N_API_URL}
+      - N8N_API_KEY=${N8N_API_KEY}
+      - APP_URL=http://localhost:3001
+
+volumes:
+  postgres_data:

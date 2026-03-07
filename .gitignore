@@ -1,0 +1,88 @@
+# ==========================================
+# AURENIX — .gitignore
+# ==========================================
+
+# Credenciales y secretos — NUNCA al repo
+.env
+.env.local
+.env.*.local
+.mcp.json
+*.pem
+*_rsa
+*_rsa_classic
+*_ed25519
+!*.pub
+
+# Carpeta de claves completa
+_INFRA/Claves_contraseñas/
+
+# Scripts con credenciales embebidas
+_INFRA/scripts/fix_s1_s2_s3.py
+_INFRA/scripts/ssh/hostingern8n.txt
+
+# Dependencias
+node_modules/
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Builds
+dist/
+build/
+.next/
+*.egg-info/
+*.tsbuildinfo
+build_log*.txt
+build_error*.txt
+
+# Datos de Docker locales
+pg_data/
+wordpress_data/
+Uploads/
+
+# Client projects (separate repos)
+PLANTASUR B2C/
+_CLIENTS/
+
+# Duplicate monorepo at root (use _PROJECTS/AURENIX AGENCY/ instead)
+/AURENIX AGENCY/
+
+# Separate projects (own repos / embedded git)
+_PROJECTS/LIBERTAD FINANCIERA/
+_PROJECTS/WEB/1/
+_PROJECTS/WEB/23-10/
+_PROJECTS/WEB/public-web/
+_PROJECTS/AURENIX AGENCY/archive/legacy-core/MIGRACION-COMPLETA/
+
+# N8N-Cursor-Pro (MCP tools - separate)
+N8N-Cursor-Pro/
+
+# Archivos pesados / binarios / backups
+*.zip
+*.mp4
+*.mov
+*.exe
+*.pdb
+_ARCHIVE/
+*.db
+*.tar.gz
+
+# Logs
+*.log
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDEs
+.vscode/settings.json
+.idea/
+*.suo
+
+# Temporales
+*.tmp
+*.bak
+build_temp/

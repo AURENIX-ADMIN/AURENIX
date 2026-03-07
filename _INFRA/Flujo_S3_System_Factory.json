@@ -1,0 +1,261 @@
+{
+  "name": "S3: System Factory (Auto-Builder)",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": [
+          "message"
+        ]
+      },
+      "id": "1",
+      "name": "Telegram Trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "TEL_API_ID_AQUI",
+          "name": "Telegram bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json.message.text}}",
+              "operation": "startsWith",
+              "value2": "/create"
+            }
+          ],
+          "number": [
+            {
+              "value1": "={{$json.message.from.id}}",
+              "operation": "equal",
+              "value2": 501092522
+            }
+          ]
+        },
+        "combineOperation": "and"
+      },
+      "id": "2",
+      "name": "Security Check (Jose & /create)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1.1,
+      "position": [
+        220,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const text = $node[\"Telegram Trigger\"].json.message.text;\nconst prompt = text.replace('/create', '').trim();\nreturn [{ json: { prompt: prompt } }];"
+      },
+      "id": "3",
+      "name": "Extract Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        -20
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{$json.prompt}}",
+        "options": {
+          "systemMessage": "Eres S3 System Factory de AURENIX, un arquitecto de automatización experto.\nTu objetivo es generar un flujo de n8n válido (JSON) basándote en la petición del usuario.\n\nCRÍTICO: \n1. Responde ÚNICAMENTE con JSON puro, sin tags de markdown como ```json o explicaciones.\n2. El JSON debe tener esta estructura exacta:\n{\n  \"name\": \"Nombre del Flujo\",\n  \"nodes\": [ ... array de objetos node de n8n válidos ... ],\n  \"connections\": { ... objeto de conexiones de n8n ... }\n}\n3. Incluye posiciones (x, y) aproximadas para que sea visualmente organizado."
+        }
+      },
+      "id": "4",
+      "name": "Cerebro Factory (Groq)",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.4,
+      "position": [
+        680,
+        -20
+      ]
+    },
+    {
+      "parameters": {
+        "modelName": "llama3-70b-8192",
+        "options": {
+          "temperature": 0.1
+        }
+      },
+      "id": "5",
+      "name": "Groq Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
+      "typeVersion": 1,
+      "position": [
+        680,
+        180
+      ],
+      "credentials": {
+        "groqApi": {
+          "id": "GROQ_API_ID_AQUI",
+          "name": "Groq account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "try {\n  let raw = $node[\"Cerebro Factory (Groq)\"].json.text;\n  // Eliminar bloques markdown si la IA no obedece\n  if (raw.startsWith('```json')) raw = raw.substring(7, raw.length - 3);\n  else if (raw.startsWith('```')) raw = raw.substring(3, raw.length - 3);\n  \n  const workflowData = JSON.parse(raw.trim());\n  return [{ json: workflowData, pairedItem: { item: 0 } }];\n} catch (e) {\n  throw new Error('La IA no devolvió un JSON válido. ' + e.message);\n}"
+      },
+      "id": "6",
+      "name": "Parse & Validate JSON",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        920,
+        -20
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:5678/api/v1/workflows",
+        "authentication": "headerAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "name",
+              "value": "={{$node[\"Parse & Validate JSON\"].json.name}}"
+            },
+            {
+              "name": "nodes",
+              "value": "={{JSON.stringify($node[\"Parse & Validate JSON\"].json.nodes)}}"
+            },
+            {
+              "name": "connections",
+              "value": "={{JSON.stringify($node[\"Parse & Validate JSON\"].json.connections)}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "7",
+      "name": "n8n API Create Flow",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1160,
+        -20
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "N8N_API_KEY_AQUI",
+          "name": "n8n API Auth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "501092522",
+        "text": "=🏭 *SYSTEM FACTORY* 🏭\n\n¡He creado tu nuevo flujo de automatización!\n\n*Nombre:* `{{$node[\"n8n API Create Flow\"].json.name}}`\n*ID Interno:* `{{$node[\"n8n API Create Flow\"].json.id}}`\n\n_Puedes revisarlo en el panel de control de n8n._",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "8",
+      "name": "Telegram Success",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.1,
+      "position": [
+        1400,
+        -20
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "TEL_API_ID_AQUI",
+          "name": "Telegram bot"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "Security Check (Jose & /create)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Security Check (Jose & /create)": {
+      "main": [
+        [
+          {
+            "node": "Extract Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Prompt": {
+      "main": [
+        [
+          {
+            "node": "Cerebro Factory (Groq)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Cerebro Factory (Groq)",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cerebro Factory (Groq)": {
+      "main": [
+        [
+          {
+            "node": "Parse & Validate JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse & Validate JSON": {
+      "main": [
+        [
+          {
+            "node": "n8n API Create Flow",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "n8n API Create Flow": {
+      "main": [
+        [
+          {
+            "node": "Telegram Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

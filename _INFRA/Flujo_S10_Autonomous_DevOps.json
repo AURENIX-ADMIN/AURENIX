@@ -1,0 +1,102 @@
+{
+  "name": "S10: Autonomous DevOps (CI/CD PR Review)",
+  "nodes": [
+    {
+      "parameters": {
+        "authentication": "webhook",
+        "events": ["pull_request"],
+        "options": {}
+      },
+      "id": "1",
+      "name": "GitHub Trigger",
+      "type": "n8n-nodes-base.githubReleaseTrigger",
+      "typeVersion": 1,
+      "position": [0, 200]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json.action}}",
+              "value2": "opened"
+            }
+          ]
+        }
+      },
+      "id": "2",
+      "name": "Is PR Opened?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [220, 200]
+    },
+    {
+      "parameters": {
+        "url": "={{$json.pull_request.diff_url}}",
+        "options": {}
+      },
+      "id": "3",
+      "name": "Get PR Diff",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [440, 100]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "Analiza este código Diff: {{$json.data}}",
+        "options": {
+          "systemMessage": "Eres un Senior Software Architect B2B evaluando un Pull Request en GitHub. Analiza el diff buscando: 1) Riesgos de seguridad. 2) Código espagueti o N+1 queries. 3) Complejidad ciclomática. Devuelve tu respuesta en Markdown lista para ser comentada en la plataforma, empezando con '### 🤖 AI Code Review'."
+        }
+      },
+      "id": "4",
+      "name": "Claude 3.5 Sonnet / GPT-4o",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.4,
+      "position": [660, 100]
+    },
+    {
+      "parameters": {
+        "modelName": "llama3-70b-8192"
+      },
+      "id": "5",
+      "name": "Groq Llama3 70B",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
+      "typeVersion": 1,
+      "position": [660, 300]
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "resource": "issueComment",
+        "operation": "create",
+        "owner": "={{$node[\"GitHub Trigger\"].json.repository.owner.login}}",
+        "repository": "={{$node[\"GitHub Trigger\"].json.repository.name}}",
+        "issueNumber": "={{$node[\"GitHub Trigger\"].json.pull_request.number}}",
+        "body": "={{$json.text}}"
+      },
+      "id": "6",
+      "name": "Post GitHub Comment",
+      "type": "n8n-nodes-base.github",
+      "typeVersion": 1,
+      "position": [880, 100]
+    }
+  ],
+  "connections": {
+    "GitHub Trigger": {
+      "main": [ [ { "node": "Is PR Opened?", "type": "main", "index": 0 } ] ]
+    },
+    "Is PR Opened?": {
+      "main": [ [ { "node": "Get PR Diff", "type": "main", "index": 0 } ] ]
+    },
+    "Get PR Diff": {
+      "main": [ [ { "node": "Claude 3.5 Sonnet / GPT-4o", "type": "main", "index": 0 } ] ]
+    },
+    "Claude 3.5 Sonnet / GPT-4o": {
+      "main": [ [ { "node": "Post GitHub Comment", "type": "main", "index": 0 } ] ]
+    },
+    "Groq Llama3 70B": {
+      "ai_languageModel": [ [ { "node": "Claude 3.5 Sonnet / GPT-4o", "type": "ai_languageModel", "index": 0 } ] ]
+    }
+  }
+}

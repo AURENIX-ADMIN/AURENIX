@@ -1,0 +1,20 @@
+[tool.poetry]
+name = "temporal-worker"
+version = "0.1.0"
+description = "FENIX Temporal Worker"
+authors = ["Aurenix Engineering <eng@aurenix.ai>"]
+package-mode = false
+
+[tool.poetry.dependencies]
+python = "^3.11"
+temporalio = "^1.4.0"
+core-engine = {path = "../../packages/core-engine", develop = true}
+integrations = {path = "../../packages/integrations", develop = true}
+browser-use = "^0.1.0"
+langchain-google-vertexai = "^0.1.0"
+langchain-google-genai = "^0.0.9"
+asyncpg = "^0.29.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

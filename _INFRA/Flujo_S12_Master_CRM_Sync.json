@@ -1,0 +1,98 @@
+{
+  "name": "S12: Sincronización CRM Maestra (Data Unification Bus)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [{ "field": "hours", "expression": 1 }]
+        }
+      },
+      "id": "1",
+      "name": "Cron (Hourly)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [0, 200]
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "returnAll": true,
+        "additionalFields": {
+          "properties": ["email", "firstname", "lastname", "lastmodifieddate"]
+        }
+      },
+      "id": "2",
+      "name": "HubSpot (Get Recent)",
+      "type": "n8n-nodes-base.hubspot",
+      "typeVersion": 1,
+      "position": [220, 100]
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "returnAll": true
+      },
+      "id": "3",
+      "name": "Salesforce (Get Recent)",
+      "type": "n8n-nodes-base.salesforce",
+      "typeVersion": 1,
+      "position": [220, 300]
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "multiplex"
+      },
+      "id": "4",
+      "name": "Merge Lists",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2,
+      "position": [440, 200]
+    },
+    {
+      "parameters": {
+        "operation": "aggregateItems",
+        "fieldsToAggregate": { "fieldToAggregate": [{ "fieldToAggregate": "email", "renameField": "emails_set" }] },
+        "options": {}
+      },
+      "id": "5",
+      "name": "Item Lists (Deduplicate)",
+      "type": "n8n-nodes-base.itemLists",
+      "typeVersion": 1,
+      "position": [660, 200]
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "table": "Master_CRM_Data",
+        "columns": "Email, Hubspot_Id, Salesforce_Id",
+        "options": {}
+      },
+      "id": "6",
+      "name": "Supabase (Single Source of Truth)",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [880, 200]
+    }
+  ],
+  "connections": {
+    "Cron (Hourly)": {
+      "main": [
+        [ { "node": "HubSpot (Get Recent)", "type": "main", "index": 0 } ],
+        [ { "node": "Salesforce (Get Recent)", "type": "main", "index": 0 } ]
+      ]
+    },
+    "HubSpot (Get Recent)": {
+      "main": [ [ { "node": "Merge Lists", "type": "main", "index": 0 } ] ]
+    },
+    "Salesforce (Get Recent)": {
+      "main": [ [ { "node": "Merge Lists", "type": "main", "index": 1 } ] ]
+    },
+    "Merge Lists": {
+      "main": [ [ { "node": "Item Lists (Deduplicate)", "type": "main", "index": 0 } ] ]
+    },
+    "Item Lists (Deduplicate)": {
+      "main": [ [ { "node": "Supabase (Single Source of Truth)", "type": "main", "index": 0 } ] ]
+    }
+  }
+}

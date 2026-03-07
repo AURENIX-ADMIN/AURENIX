@@ -1,0 +1,5 @@
+temporalio
+pydantic
+pyyaml
+python-dotenv
+supabase

@@ -1,0 +1,149 @@
+{
+  "name": "S9: Predicción y Prevención de Churn (Retention Oracle)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [{ "field": "days", "expression": 1 }]
+        }
+      },
+      "id": "1",
+      "name": "Cron (Diario 2:00 AM)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [0, 200]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT email, last_login, api_calls_last_30d FROM user_telemetry WHERE last_login < (NOW() - INTERVAL '14 days');"
+      },
+      "id": "2",
+      "name": "PostgreSQL (Telemetría de Uso)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.2,
+      "position": [220, 100]
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "resource": "ticket",
+        "query": "requester:{{$json.email}} status<closed"
+      },
+      "id": "3",
+      "name": "Zendesk (Historial Tickets)",
+      "type": "n8n-nodes-base.zendesk",
+      "typeVersion": 1,
+      "position": [220, 300]
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "multiplex"
+      },
+      "id": "4",
+      "name": "Merge (Datos de Usuario)",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2,
+      "position": [440, 200]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "Usuario: {{$json.email}}\nDías sin loguearse: 14+\nTickets abiertos: {{$json.ticket_count}}\nContenido último ticket: {{$json.last_ticket_body}}",
+        "options": {
+          "systemMessage": "Analiza estos datos de uso SaaS y soporte. Devuelve un 'Churn Risk Score' del 0.0 al 1.0 (donde 1.0 es abandono inminente). Devuelve JSON estricto: {\"churnRisk\": 0.85, \"reason\": \"Mucha frustración en el último ticket y nulo uso del sistema\"}. Se requiere acción si la nota es > 0.70."
+        }
+      },
+      "id": "5",
+      "name": "LangChain (Análisis de Sentimiento y Riesgo)",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.4,
+      "position": [660, 200]
+    },
+    {
+      "parameters": {
+        "modelName": "llama3-70b-8192"
+      },
+      "id": "6",
+      "name": "Llama 3 70B",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
+      "typeVersion": 1,
+      "position": [660, 400]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{$json.churnRisk}}",
+              "operation": "largerEqual",
+              "value2": 0.7
+            }
+          ]
+        }
+      },
+      "id": "7",
+      "name": "If Risk > 0.70",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [880, 200]
+    },
+    {
+      "parameters": {
+        "resource": "coupon",
+        "operation": "create",
+        "percentOff": 20,
+        "duration": "once"
+      },
+      "id": "8",
+      "name": "Stripe (Generar Cupón)",
+      "type": "n8n-nodes-base.stripe",
+      "typeVersion": 1,
+      "position": [1100, 100]
+    },
+    {
+      "parameters": {
+        "resource": "email",
+        "operation": "send",
+        "toEmail": "={{$json.email}}",
+        "subject": "Cómo podemos mejorar tu experiencia en AURENIX",
+        "text": "=Hola,\nHemos notado que has tenido algunos problemas recientes y tu actividad ha bajado. Queremos ayudarte. Toma este 20% de descuento para tu próxima factura: {{$node[\"Stripe (Generar Cupón)\"].json.id}}.\n¿Hablamos 10 minutos?\nSaludos."
+      },
+      "id": "9",
+      "name": "Gmail (Intervención Preventiva)",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2,
+      "position": [1320, 100]
+    }
+  ],
+  "connections": {
+    "Cron (Diario 2:00 AM)": {
+      "main": [
+        [ { "node": "PostgreSQL (Telemetría de Uso)", "type": "main", "index": 0 } ],
+        [ { "node": "Zendesk (Historial Tickets)", "type": "main", "index": 0 } ]
+      ]
+    },
+    "PostgreSQL (Telemetría de Uso)": {
+      "main": [ [ { "node": "Merge (Datos de Usuario)", "type": "main", "index": 0 } ] ]
+    },
+    "Zendesk (Historial Tickets)": {
+      "main": [ [ { "node": "Merge (Datos de Usuario)", "type": "main", "index": 1 } ] ]
+    },
+    "Merge (Datos de Usuario)": {
+      "main": [ [ { "node": "LangChain (Análisis de Sentimiento y Riesgo)", "type": "main", "index": 0 } ] ]
+    },
+    "LangChain (Análisis de Sentimiento y Riesgo)": {
+      "main": [ [ { "node": "If Risk > 0.70", "type": "main", "index": 0 } ] ]
+    },
+    "If Risk > 0.70": {
+      "main": [ [ { "node": "Stripe (Generar Cupón)", "type": "main", "index": 0 } ] ]
+    },
+    "Stripe (Generar Cupón)": {
+      "main": [ [ { "node": "Gmail (Intervención Preventiva)", "type": "main", "index": 0 } ] ]
+    },
+    "Llama 3 70B": {
+      "ai_languageModel": [ [ { "node": "LangChain (Análisis de Sentimiento y Riesgo)", "type": "ai_languageModel", "index": 0 } ] ]
+    }
+  }
+}

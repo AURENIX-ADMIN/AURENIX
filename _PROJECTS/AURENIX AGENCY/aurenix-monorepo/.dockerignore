@@ -1,0 +1,15 @@
+node_modules
+.next
+.turbo
+dist
+build
+*.log
+.env.local
+.env.*.local
+.git
+.vscode
+docker_data
+postgres_data
+temporal_data
+build_error.txt
+build_log_*.txt

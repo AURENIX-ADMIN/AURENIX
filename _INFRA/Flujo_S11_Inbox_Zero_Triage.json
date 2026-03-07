@@ -1,0 +1,117 @@
+{
+  "name": "S11: Gestión Inbox Zero y Triage (Cognitive Support Gateway)",
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [{ "mode": "everyMinute" }]
+        },
+        "mailbox": "INBOX",
+        "action": "unseen",
+        "markRead": true
+      },
+      "id": "1",
+      "name": "IMAP Email Trigger",
+      "type": "n8n-nodes-base.emailReadImap",
+      "typeVersion": 2,
+      "position": [0, 200]
+    },
+    {
+      "parameters": {
+        "keepOnlySet": true,
+        "values": {
+          "string": [
+            { "name": "sender", "value": "={{$json.from.address}}" },
+            { "name": "subject", "value": "={{$json.subject}}" },
+            { "name": "body", "value": "={{$json.textHtml}}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "2",
+      "name": "Extraer Datos",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [220, 200]
+    },
+    {
+      "parameters": {
+        "action": "htmlToMarkdown",
+        "dataPropertyName": "body"
+      },
+      "id": "3",
+      "name": "HTML to Markdown",
+      "type": "n8n-nodes-base.markdown",
+      "typeVersion": 1,
+      "position": [440, 200]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "Asunto: {{$json.subject}}\nCuerpo: {{$json.body}}",
+        "options": {
+          "systemMessage": "Eres un Operador L1 B2B. Clasifica este correo en una de las siguientes macros y devuelve JSON estricto: {\"categoria\": \"Soporte|Facturacion|Ventas|Spam\", \"resumen\": \"...\", \"urgencia\": \"Alta|Media|Baja\"}. NO respondas nada más."
+        }
+      },
+      "id": "4",
+      "name": "LLM Router (Groq)",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.4,
+      "position": [660, 200]
+    },
+    {
+      "parameters": {
+        "modelName": "llama3-8b-8192"
+      },
+      "id": "5",
+      "name": "Llama 3 8B",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
+      "typeVersion": 1,
+      "position": [660, 400]
+    },
+    {
+      "parameters": {
+        "workflowId": "uuid-for-rag-answer-drafter"
+      },
+      "id": "6",
+      "name": "SubFlow: Redactar Borrador RAG",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [880, 200],
+      "notes": "Si es Soporte, llama a RAG para crear borrador."
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "table": "Tickets",
+        "columns": "Remitente, Asunto, Categoria, Urgencia",
+        "options": {}
+      },
+      "id": "7",
+      "name": "Supabase (Store Ticket)",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [1100, 200]
+    }
+  ],
+  "connections": {
+    "IMAP Email Trigger": {
+      "main": [ [ { "node": "Extraer Datos", "type": "main", "index": 0 } ] ]
+    },
+    "Extraer Datos": {
+      "main": [ [ { "node": "HTML to Markdown", "type": "main", "index": 0 } ] ]
+    },
+    "HTML to Markdown": {
+      "main": [ [ { "node": "LLM Router (Groq)", "type": "main", "index": 0 } ] ]
+    },
+    "LLM Router (Groq)": {
+      "main": [ [ { "node": "SubFlow: Redactar Borrador RAG", "type": "main", "index": 0 } ] ]
+    },
+    "SubFlow: Redactar Borrador RAG": {
+      "main": [ [ { "node": "Supabase (Store Ticket)", "type": "main", "index": 0 } ] ]
+    },
+    "Llama 3 8B": {
+      "ai_languageModel": [ [ { "node": "LLM Router (Groq)", "type": "ai_languageModel", "index": 0 } ] ]
+    }
+  }
+}

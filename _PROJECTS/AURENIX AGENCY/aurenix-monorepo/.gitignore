@@ -1,0 +1,30 @@
+# Node
+node_modules
+.pnpm-debug.log
+.npmrc
+
+# Next.js
+.next
+out
+
+# Python
+__pycache__
+*.py[cod]
+.venv
+poetry.lock
+
+# Terraform
+.terraform
+*.tfstate
+*.tfstate.backup
+
+# Env
+.env*
+!*.example
+
+# Turbo
+.turbo
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,0 +1,53 @@
+name: Aurenix CI
+
+on:
+    push:
+        branches: [main]
+    pull_request:
+        branches: [main]
+
+jobs:
+    web-portal-checks:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Setup Node
+              uses: actions/setup-node@v4
+              with:
+                  node-version: "20"
+                  cache: "pnpm"
+
+            - name: Install pnpm
+              uses: pnpm/action-setup@v2
+              with:
+                  version: 8
+
+            - name: Install dependencies
+              run: pnpm install --frozen-lockfile
+
+            - name: Lint Web Portal
+              run: pnpm --filter web-portal lint
+
+            - name: Build Web Portal
+              run: pnpm --filter web-portal build
+
+    agent-worker-checks:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Setup Python
+              uses: actions/setup-python@v5
+              with:
+                  python-version: "3.10"
+
+            - name: Install Poetry or Pip
+              run: |
+                  pip install --upgrade pip
+                  # Assuming requirements.txt or pip install for now based on file list
+                  cd apps/agent-worker
+                  pip install -e .
+
+            - name: Run Security Check
+              run: python verify_security.py
