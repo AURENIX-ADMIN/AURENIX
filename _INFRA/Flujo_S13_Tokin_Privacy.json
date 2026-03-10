@@ -1,0 +1,272 @@
+{
+  "name": "S13 ULTIMATE: Tokin Privacy (Security Audit 24/7 + Credential Rotation Reminder)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "30 2 * * *"
+            }
+          ]
+        }
+      },
+      "id": "cron-01",
+      "name": "CronSecurityAudit",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "authentication": "privateKey",
+        "command": "cat /data/agencia/security/audit_$(date +%Y-%m-%d).json 2>/dev/null || echo '{\"error\": \"No audit file found for today. Run aurenix-security-audit.sh first.\"}'",
+        "cwd": "/"
+      },
+      "id": "ssh-read-audit-01",
+      "name": "SSHReadAudit",
+      "type": "n8n-nodes-base.ssh",
+      "typeVersion": 1,
+      "position": [240, 0],
+      "credentials": {
+        "sshPrivateKey": { "id": "zwKkkBrd5NcbMFZ3", "name": "aurenix_it_agent SSH" }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse audit JSON and categorize findings\nconst raw = $input.first().json.stdout || '';\nlet audit;\ntry {\n  audit = JSON.parse(raw.trim());\n} catch (e) {\n  return [{ json: { severity: 'CRITICAL', findings: ['Failed to parse audit JSON: ' + e.message], raw: raw.substring(0, 1000) } }];\n}\n\nif (audit.error) {\n  return [{ json: { severity: 'WARNING', findings: [audit.error], raw: '' } }];\n}\n\nconst findings = [];\nconst checks = audit.checks || {};\n\n// Categorize each check\nfor (const [name, check] of Object.entries(checks)) {\n  if (check.status === 'CRITICAL') {\n    findings.push({ level: 'CRITICAL', check: name, details: JSON.stringify(check).substring(0, 300) });\n  } else if (check.status === 'WARNING') {\n    findings.push({ level: 'WARNING', check: name, details: JSON.stringify(check).substring(0, 300) });\n  }\n}\n\nconst critCount = findings.filter(f => f.level === 'CRITICAL').length;\nconst warnCount = findings.filter(f => f.level === 'WARNING').length;\nconst severity = critCount > 0 ? 'CRITICAL' : warnCount > 0 ? 'WARNING' : 'OK';\n\nreturn [{ json: {\n  severity,\n  overall: audit.overall,\n  critCount,\n  warnCount,\n  findings,\n  date: audit.date,\n  timestamp: audit.timestamp,\n  sslCerts: checks.ssl_certs?.certs || [],\n  fail2ban: checks.fail2ban || {},\n  sshAttacks: checks.ssh_attacks?.failed_24h || 0,\n  diskPercent: checks.resources?.disk_percent || 0,\n  ramPercent: checks.resources?.ram_percent || 0\n} }];"
+      },
+      "id": "parse-audit-01",
+      "name": "ParseAuditFindings",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [480, 0],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "" },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.severity }}",
+              "rightValue": "OK",
+              "operator": { "type": "string", "operation": "notEquals" }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "if-issues-01",
+      "name": "IfIssuesFound",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [720, 0]
+    },
+    {
+      "parameters": {
+        "chatId": "501092522",
+        "text": "=\ud83d\udee1\ufe0f *S13 TOKIN PRIVACY \u2014 Security Audit {{ $json.date }}*\n\n*Overall:* {{ $json.severity }} ({{ $json.critCount }} critical, {{ $json.warnCount }} warnings)\n\n{{ $json.findings.map((f, i) => `${f.level === 'CRITICAL' ? '\\u274c' : '\\u26a0\\ufe0f'} *${f.check}:* ${f.details.substring(0, 150)}`).join('\\n') }}\n\n*Resources:* Disk {{ $json.diskPercent }}% | RAM {{ $json.ramPercent }}%\n*SSH attacks (24h):* {{ $json.sshAttacks }}\n*Fail2ban:* {{ $json.fail2ban.ssh_currently_banned || 0 }} currently banned\n\nFull report: `/data/agencia/security/audit_{{ $json.date }}.json`",
+        "additionalFields": { "parse_mode": "Markdown" }
+      },
+      "id": "tel-security-01",
+      "name": "TelegramSecurityAlert",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [960, -80],
+      "credentials": {
+        "telegramApi": { "id": "j286Y4Q9S28CG36j", "name": "Telegram bot" }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "fileName": "=/data/agencia/security/security_audit.jsonl",
+        "fileContent": "={{ JSON.stringify({ timestamp: $json.timestamp || new Date().toISOString(), date: $json.date, severity: $json.severity, critCount: $json.critCount, warnCount: $json.warnCount, sshAttacks: $json.sshAttacks, diskPercent: $json.diskPercent, ramPercent: $json.ramPercent }) }}\n"
+      },
+      "id": "log-audit-01",
+      "name": "LogAuditJSONL",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [960, 120]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Credential Rotation Reminder\n// Check if any credentials are approaching expiry\nconst now = new Date();\nconst reminders = [];\n\nconst credentials = [\n  { name: 'n8n API Key', expires: '2026-04-01', warnDaysBefore: 7 },\n  { name: 'Telegram Bot Token', expires: null, rotateEveryDays: 180, lastRotated: '2026-01-01' },\n  { name: 'SSH Keys (root)', expires: null, rotateEveryDays: 365, lastRotated: '2026-03-01' },\n  { name: 'SSH Keys (agent)', expires: null, rotateEveryDays: 365, lastRotated: '2026-03-01' },\n  { name: 'Groq API Key', expires: null, rotateEveryDays: 180, lastRotated: '2026-01-15' },\n  { name: 'DB Password (PostgreSQL)', expires: null, rotateEveryDays: 90, lastRotated: '2026-01-01' },\n  { name: 'Filebrowser Admin Password', expires: null, rotateEveryDays: 90, lastRotated: '2026-03-01' }\n];\n\nfor (const cred of credentials) {\n  if (cred.expires) {\n    const expiryDate = new Date(cred.expires);\n    const daysUntilExpiry = Math.ceil((expiryDate - now) / (1000 * 60 * 60 * 24));\n    if (daysUntilExpiry <= (cred.warnDaysBefore || 7)) {\n      reminders.push({ name: cred.name, type: 'EXPIRY', daysLeft: daysUntilExpiry, expires: cred.expires });\n    }\n  }\n  if (cred.rotateEveryDays && cred.lastRotated) {\n    const lastRotated = new Date(cred.lastRotated);\n    const daysSinceRotation = Math.ceil((now - lastRotated) / (1000 * 60 * 60 * 24));\n    if (daysSinceRotation >= cred.rotateEveryDays) {\n      reminders.push({ name: cred.name, type: 'ROTATION_DUE', daysSinceRotation, recommendedEvery: cred.rotateEveryDays });\n    }\n  }\n}\n\nreturn [{ json: { hasReminders: reminders.length > 0, reminders, count: reminders.length } }];"
+      },
+      "id": "cred-check-01",
+      "name": "CredentialRotationCheck",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1200, 0]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": false, "leftValue": "" },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.hasReminders }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "if-reminders-01",
+      "name": "IfRotationDue",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1440, 0]
+    },
+    {
+      "parameters": {
+        "chatId": "501092522",
+        "text": "=\ud83d\udd10 *S13 TOKIN PRIVACY \u2014 Credential Rotation*\n\n{{ $json.reminders.map((r, i) => {\n  if (r.type === 'EXPIRY') return `${i+1}. *${r.name}*: EXPIRA en ${r.daysLeft} dias (${r.expires})`;\n  return `${i+1}. *${r.name}*: Rotacion pendiente (${r.daysSinceRotation}d desde ultima, recomendado cada ${r.recommendedEvery}d)`;\n}).join('\\n') }}\n\nRecuerda: rotacion MANUAL. No auto-rotar.",
+        "additionalFields": { "parse_mode": "Markdown" }
+      },
+      "id": "tel-cred-01",
+      "name": "TelegramCredentialReminder",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1680, -80],
+      "credentials": {
+        "telegramApi": { "id": "j286Y4Q9S28CG36j", "name": "Telegram bot" }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 * * 1"
+            }
+          ]
+        }
+      },
+      "id": "cron-weekly-01",
+      "name": "CronWeeklyDigest",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [0, 400]
+    },
+    {
+      "parameters": {
+        "authentication": "privateKey",
+        "command": "echo '===WEEKLY_SECURITY_DIGEST==='; echo ''; echo '=== Last 7 audit results ==='; for f in $(ls -t /data/agencia/security/audit_*.json 2>/dev/null | head -7); do echo \"$(basename $f): $(python3 -c \"import json; d=json.load(open('$f')); print(d.get('overall','?'))\" 2>/dev/null || echo 'parse error')\"; done; echo ''; echo '=== SSH attacks last 7 days ==='; journalctl -u ssh --since '7 days ago' 2>/dev/null | grep -c 'Failed password\\|Failed publickey' || echo '0'; echo ''; echo '=== Fail2ban weekly ==='; fail2ban-client status sshd 2>/dev/null | grep -E 'banned|Total' || echo 'N/A'; echo ''; echo '=== Disk trend ==='; df -h / 2>/dev/null | tail -1; echo ''; echo '=== Docker health ==='; docker ps --format '{{.Names}}: {{.Status}}' 2>/dev/null | head -15",
+        "cwd": "/"
+      },
+      "id": "ssh-weekly-01",
+      "name": "SSHWeeklyDigest",
+      "type": "n8n-nodes-base.ssh",
+      "typeVersion": 1,
+      "position": [240, 400],
+      "credentials": {
+        "sshPrivateKey": { "id": "zwKkkBrd5NcbMFZ3", "name": "aurenix_it_agent SSH" }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "chatId": "501092522",
+        "text": "=\ud83d\udcca *S13 TOKIN PRIVACY \u2014 Weekly Security Digest*\n\n```\n{{ $json.stdout || 'No data available' }}\n```\n\n_Generado {{ new Date().toLocaleString('es-ES') }}_",
+        "additionalFields": { "parse_mode": "Markdown" }
+      },
+      "id": "tel-weekly-01",
+      "name": "TelegramWeeklyDigest",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [480, 400],
+      "credentials": {
+        "telegramApi": { "id": "j286Y4Q9S28CG36j", "name": "Telegram bot" }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {},
+      "id": "err-trigger-s13-01",
+      "name": "ErrorTriggerS13Internal",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [0, 700]
+    },
+    {
+      "parameters": {
+        "chatId": "501092522",
+        "text": "=\ud83d\udc80 *S13 TOKIN PRIVACY \u2014 FALLO INTERNO*\n\n*Error:* {{ $json.execution?.error?.message || 'Error desconocido' }}\n*Nodo:* {{ $json.execution?.lastNodeExecuted || 'N/A' }}",
+        "additionalFields": { "parse_mode": "Markdown" }
+      },
+      "id": "tel-internal-err-01",
+      "name": "TelegramS13InternalError",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [240, 700],
+      "credentials": {
+        "telegramApi": { "id": "j286Y4Q9S28CG36j", "name": "Telegram bot" }
+      }
+    }
+  ],
+  "connections": {
+    "CronSecurityAudit": {
+      "main": [[{ "node": "SSHReadAudit", "type": "main", "index": 0 }]]
+    },
+    "SSHReadAudit": {
+      "main": [
+        [{ "node": "ParseAuditFindings", "type": "main", "index": 0 }],
+        [{ "node": "ParseAuditFindings", "type": "main", "index": 0 }]
+      ]
+    },
+    "ParseAuditFindings": {
+      "main": [
+        [{ "node": "IfIssuesFound", "type": "main", "index": 0 }],
+        [{ "node": "IfIssuesFound", "type": "main", "index": 0 }]
+      ]
+    },
+    "IfIssuesFound": {
+      "main": [
+        [{ "node": "TelegramSecurityAlert", "type": "main", "index": 0 }],
+        [{ "node": "LogAuditJSONL", "type": "main", "index": 0 }]
+      ]
+    },
+    "TelegramSecurityAlert": {
+      "main": [
+        [{ "node": "LogAuditJSONL", "type": "main", "index": 0 }],
+        [{ "node": "LogAuditJSONL", "type": "main", "index": 0 }]
+      ]
+    },
+    "LogAuditJSONL": {
+      "main": [[{ "node": "CredentialRotationCheck", "type": "main", "index": 0 }]]
+    },
+    "CredentialRotationCheck": {
+      "main": [[{ "node": "IfRotationDue", "type": "main", "index": 0 }]]
+    },
+    "IfRotationDue": {
+      "main": [
+        [{ "node": "TelegramCredentialReminder", "type": "main", "index": 0 }]
+      ]
+    },
+    "CronWeeklyDigest": {
+      "main": [[{ "node": "SSHWeeklyDigest", "type": "main", "index": 0 }]]
+    },
+    "SSHWeeklyDigest": {
+      "main": [
+        [{ "node": "TelegramWeeklyDigest", "type": "main", "index": 0 }],
+        [{ "node": "TelegramWeeklyDigest", "type": "main", "index": 0 }]
+      ]
+    },
+    "ErrorTriggerS13Internal": {
+      "main": [[{ "node": "TelegramS13InternalError", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  }
+}

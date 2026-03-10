@@ -20,134 +20,75 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 
-// Mock data - in production this would come from API
-const metrics = [
-  {
-    label: 'Horas Ahorradas',
-    value: '47.5',
-    unit: 'horas',
-    change: '+12.3%',
-    trend: 'up',
-    period: 'este mes',
-    icon: Clock,
-    color: 'hsl(45, 93%, 47%)',
-  },
-  {
-    label: 'Tareas Completadas',
-    value: '284',
-    unit: 'tareas',
-    change: '+8.2%',
-    trend: 'up',
-    period: 'este mes',
-    icon: CheckCircle2,
-    color: 'hsl(141, 71%, 48%)',
-  },
-  {
-    label: 'Agentes Activos',
-    value: '3',
-    unit: 'de 5',
-    change: '',
-    trend: 'neutral',
-    period: 'disponibles',
-    icon: Bot,
-    color: 'hsl(217, 91%, 60%)',
-  },
-  {
-    label: 'ROI Generado',
-    value: '$4,720',
-    unit: '',
-    change: '+23.1%',
-    trend: 'up',
-    period: 'este mes',
-    icon: TrendingUp,
-    color: 'hsl(20, 97%, 57%)',
-  },
-];
+const METRIC_ICONS: Record<string, typeof Clock> = {
+  'Ejecuciones 24h': Zap,
+  'Workflows Activos': Bot,
+  'Workflows Totales': Activity,
+  'Tasa de Exito': TrendingUp,
+};
 
-const recentActivity = [
-  {
-    id: 1,
-    agent: 'Lead Hunter',
-    action: 'Encontrado 12 nuevos leads cualificados',
-    time: 'Hace 5 min',
-    status: 'success',
-  },
-  {
-    id: 2,
-    agent: 'Email Assistant',
-    action: 'Borrador pendiente de aprobación',
-    time: 'Hace 15 min',
-    status: 'pending',
-  },
-  {
-    id: 3,
-    agent: 'Meeting Scheduler',
-    action: 'Reunión programada con Cliente ABC',
-    time: 'Hace 1 hora',
-    status: 'success',
-  },
-  {
-    id: 4,
-    agent: 'Lead Hunter',
-    action: 'Escaneo diario completado',
-    time: 'Hace 2 horas',
-    status: 'success',
-  },
-];
+const METRIC_COLORS: Record<string, string> = {
+  'Ejecuciones 24h': 'hsl(45, 93%, 47%)',
+  'Workflows Activos': 'hsl(217, 91%, 60%)',
+  'Workflows Totales': 'hsl(141, 71%, 48%)',
+  'Tasa de Exito': 'hsl(20, 97%, 57%)',
+};
 
-const agents = [
-  {
-    id: 'lead-hunter',
-    name: 'Lead Hunter',
-    description: 'Busca y califica leads automáticamente',
-    status: 'active',
-    lastRun: 'Hace 5 min',
-    metrics: { leads: 47, qualified: 12 },
-  },
-  {
-    id: 'email-assistant',
-    name: 'Email Assistant',
-    description: 'Procesa y responde emails',
-    status: 'active',
-    lastRun: 'Hace 15 min',
-    metrics: { processed: 23, drafts: 3 },
-  },
-  {
-    id: 'meeting-scheduler',
-    name: 'Meeting Scheduler',
-    description: 'Gestiona tu calendario',
-    status: 'paused',
-    lastRun: 'Hace 1 hora',
-    metrics: { scheduled: 5, pending: 2 },
-  },
-];
+interface AgentData {
+  id: string;
+  name: string;
+  description: string;
+  active: boolean;
+  status: string;
+  updatedAt: string | null;
+}
+
+function timeAgo(dateStr: string | null | undefined): string {
+  if (!dateStr) return 'N/A';
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const mins = Math.floor(diff / 60_000);
+  if (mins < 1) return 'Justo ahora';
+  if (mins < 60) return `Hace ${mins}min`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `Hace ${hours}h`;
+  return `Hace ${Math.floor(hours / 24)}d`;
+}
 
 export default function DashboardOverview() {
-  const [data, setData] = useState(metrics);
-  const [healthData, setHealthData] = useState<any>(null);
+  const [data, setData] = useState<Array<{ label: string; value: string; unit: string; change: string; trend: string; period: string; icon: typeof Clock; color: string }>>([]);
+  const [healthData, setHealthData] = useState<Record<string, { status: string; errorCount24h: number; successCount24h: number; message: string }> | null>(null);
+  const [agents, setAgents] = useState<AgentData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     async function fetchDashboardData() {
       try {
-        const [metricsRes, healthRes] = await Promise.all([
+        const [metricsRes, healthRes, agentsRes] = await Promise.all([
           fetch('/api/metrics'),
-          fetch('/api/health')
+          fetch('/api/health'),
+          fetch('/api/agents/status'),
         ]);
-        
+
         const metricsJson = await metricsRes.json();
         const healthJson = await healthRes.json();
 
         if (Array.isArray(metricsJson)) {
-          const enriched = metricsJson.map(m => ({
+          const enriched = metricsJson.map((m: { label: string; value: string; unit: string; change: string; trend: string; period: string }) => ({
             ...m,
-            icon: metrics.find(mock => mock.label === m.label)?.icon || Activity
+            icon: METRIC_ICONS[m.label] || Activity,
+            color: METRIC_COLORS[m.label] || 'hsl(45, 93%, 47%)',
           }));
           setData(enriched);
         }
 
-        if (healthJson && healthJson.s1_vps_guard) {
-          setHealthData(healthJson);
+        if (healthJson && healthJson.timestamp) {
+          const { timestamp, ...systems } = healthJson;
+          setHealthData(systems);
+        }
+
+        if (agentsRes.ok) {
+          const agentsJson = await agentsRes.json();
+          setAgents(agentsJson.agents || []);
         }
       } catch (e) {
         console.error('Fetch error:', e);
@@ -156,6 +97,20 @@ export default function DashboardOverview() {
       }
     }
     fetchDashboardData();
+
+    // SSE for live health updates
+    const es = new EventSource('/api/health/stream');
+    es.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.timestamp) {
+          const { timestamp, ...systems } = data;
+          setHealthData(systems);
+        }
+      } catch { /* ignore */ }
+    };
+
+    return () => es.close();
   }, []);
 
   return (
@@ -227,59 +182,40 @@ export default function DashboardOverview() {
 
       {/* System Health Section */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="p-5 rounded-xl bg-card border border-border flex items-center justify-between hover:border-[hsl(45,93%,47%)]/30 transition-all group">
-          <div className="flex items-center gap-4">
-            <div className="h-10 w-10 rounded-lg bg-green-500/10 flex items-center justify-center">
-              <Server className="h-5 w-5 text-green-500" />
-            </div>
-            <div>
-              <h3 className="font-medium">S1: VPS Guard</h3>
-              <p className="text-sm text-muted-foreground">Sistema de Infraestructura</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            {!healthData ? (
-              <span className="text-sm font-medium text-muted-foreground">Verificando...</span>
-            ) : healthData.s1_vps_guard.status === 'operational' ? (
-              <>
-                <span className="text-sm font-medium text-green-500">Operativo</span>
-                <div className="h-2 w-2 rounded-full bg-green-500 animate-pulse" />
-              </>
-            ) : (
-               <>
-                <span className="text-sm font-medium text-red-500">Alerta</span>
-                <div className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />
-              </>
-            )}
-          </div>
-        </div>
+        {[
+          { key: 's1_vps_guard', label: 'S1: VPS Guard', desc: 'Monitor de Infraestructura', Icon: Server },
+          { key: 's2_workflow_sentinel', label: 'S2: Workflow Sentinel', desc: 'QA de Automatizaciones', Icon: ShieldAlert },
+        ].map(({ key, label, desc, Icon: SysIcon }) => {
+          const sys = healthData?.[key];
+          const statusColor = !sys ? 'text-muted-foreground' :
+            sys.status === 'operational' ? 'text-green-500' :
+            sys.status === 'degraded' ? 'text-yellow-500' :
+            sys.status === 'alert' || sys.status === 'down' ? 'text-red-500' : 'text-gray-500';
+          const dotColor = statusColor.replace('text-', 'bg-');
+          const statusLabel = !sys ? 'Verificando...' :
+            sys.status === 'operational' ? 'Operativo' :
+            sys.status === 'degraded' ? 'Degradado' :
+            sys.status === 'alert' ? 'Alerta' :
+            sys.status === 'down' ? 'Caido' : 'Desconocido';
 
-        <div className="p-5 rounded-xl bg-card border border-border flex items-center justify-between hover:border-[hsl(45,93%,47%)]/30 transition-all group">
-          <div className="flex items-center gap-4">
-            <div className="h-10 w-10 rounded-lg bg-green-500/10 flex items-center justify-center">
-              <ShieldAlert className="h-5 w-5 text-green-500" />
+          return (
+            <div key={key} className="p-5 rounded-xl bg-card border border-border flex items-center justify-between hover:border-[hsl(45,93%,47%)]/30 transition-all group">
+              <div className="flex items-center gap-4">
+                <div className={`h-10 w-10 rounded-lg ${sys?.status === 'operational' ? 'bg-green-500/10' : 'bg-yellow-500/10'} flex items-center justify-center`}>
+                  <SysIcon className={`h-5 w-5 ${statusColor}`} />
+                </div>
+                <div>
+                  <h3 className="font-medium">{label}</h3>
+                  <p className="text-sm text-muted-foreground">{desc}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className={`text-sm font-medium ${statusColor}`}>{statusLabel}</span>
+                <div className={`h-2 w-2 rounded-full ${dotColor} animate-pulse`} />
+              </div>
             </div>
-            <div>
-              <h3 className="font-medium">S2: Workflow Sentinel</h3>
-              <p className="text-sm text-muted-foreground">Calidad de Automatizaciones</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            {!healthData ? (
-              <span className="text-sm font-medium text-muted-foreground">Verificando...</span>
-            ) : healthData.s2_workflow_sentinel.status === 'operational' ? (
-              <>
-                <span className="text-sm font-medium text-green-500">Sin Alertas</span>
-                <div className="h-2 w-2 rounded-full bg-green-500 animate-pulse" />
-              </>
-            ) : (
-               <>
-                <span className="text-sm font-medium text-yellow-500">Revisión Requerida</span>
-                <div className="h-2 w-2 rounded-full bg-yellow-500 animate-pulse" />
-              </>
-            )}
-          </div>
-        </div>
+          );
+        })}
       </div>
 
       {/* Main Content Grid */}
@@ -296,6 +232,11 @@ export default function DashboardOverview() {
             </Link>
           </div>
           <div className="space-y-3">
+            {agents.length === 0 && !isLoading && (
+              <div className="p-4 rounded-xl bg-card border border-border text-center text-muted-foreground">
+                No se encontraron agentes. Verifica la conexion con n8n.
+              </div>
+            )}
             {agents.map((agent, index) => (
               <motion.div
                 key={agent.id}
@@ -311,40 +252,42 @@ export default function DashboardOverview() {
                     </div>
                     <div>
                       <div className="flex items-center gap-2">
-                        <h3 className="font-medium">{agent.name}</h3>
+                        <h3 className="font-medium">{agent.id.toUpperCase()}: {agent.name}</h3>
                         <span
                           className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
-                            agent.status === 'active'
+                            agent.active
                               ? 'bg-green-500/10 text-green-500'
+                              : agent.status === 'not_found'
+                              ? 'bg-red-500/10 text-red-500'
                               : 'bg-yellow-500/10 text-yellow-500'
                           }`}
                         >
                           <span
                             className={`h-1.5 w-1.5 rounded-full ${
-                              agent.status === 'active' ? 'bg-green-500' : 'bg-yellow-500'
+                              agent.active ? 'bg-green-500' : agent.status === 'not_found' ? 'bg-red-500' : 'bg-yellow-500'
                             }`}
                           />
-                          {agent.status === 'active' ? 'Activo' : 'Pausado'}
+                          {agent.active ? 'Activo' : agent.status === 'not_found' ? 'No encontrado' : 'Pausado'}
                         </span>
                       </div>
                       <p className="text-sm text-muted-foreground">{agent.description}</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-3">
-                    <span className="text-xs text-muted-foreground">{agent.lastRun}</span>
-                    <button
-                      className={`p-2 rounded-lg transition-colors ${
-                        agent.status === 'active'
-                          ? 'bg-secondary text-foreground hover:bg-secondary/80'
-                          : 'bg-[hsl(45,93%,47%)] text-black hover:bg-[hsl(45,93%,47%)]/90'
+                    <span className="text-xs text-muted-foreground">{timeAgo(agent.updatedAt)}</span>
+                    <div
+                      className={`p-2 rounded-lg ${
+                        agent.active
+                          ? 'bg-secondary text-foreground'
+                          : 'bg-secondary/50 text-muted-foreground'
                       }`}
                     >
-                      {agent.status === 'active' ? (
+                      {agent.active ? (
                         <Activity className="h-4 w-4" />
                       ) : (
                         <Play className="h-4 w-4" />
                       )}
-                    </button>
+                    </div>
                   </div>
                 </div>
               </motion.div>
@@ -398,22 +341,22 @@ export default function DashboardOverview() {
             ))}
           </div>
 
-          {/* Quick Stats */}
+          {/* System Links */}
           <div className="p-4 rounded-xl bg-gradient-to-br from-[hsl(45,93%,47%)]/10 to-[hsl(20,97%,57%)]/10 border border-[hsl(45,93%,47%)]/20">
-            <h3 className="font-medium mb-3">Esta Semana</h3>
+            <h3 className="font-medium mb-3">Acceso Rapido</h3>
             <div className="space-y-2">
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">Tiempo ahorrado</span>
-                <span className="font-medium">12.5 horas</span>
-              </div>
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">Tareas automatizadas</span>
-                <span className="font-medium">67</span>
-              </div>
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">Aprobaciones pendientes</span>
-                <span className="font-medium text-yellow-500">3</span>
-              </div>
+              <Link href="/dashboard/systems" className="flex items-center justify-between text-sm hover:text-[hsl(45,93%,47%)] transition-colors">
+                <span className="text-muted-foreground">Sistemas Core (S1-S5)</span>
+                <span className="font-medium">Ver estado →</span>
+              </Link>
+              <a href="https://n8n.aurenix.cloud" target="_blank" rel="noopener noreferrer" className="flex items-center justify-between text-sm hover:text-[hsl(45,93%,47%)] transition-colors">
+                <span className="text-muted-foreground">n8n Panel</span>
+                <span className="font-medium">Abrir →</span>
+              </a>
+              <a href="https://files.aurenix.cloud" target="_blank" rel="noopener noreferrer" className="flex items-center justify-between text-sm hover:text-[hsl(45,93%,47%)] transition-colors">
+                <span className="text-muted-foreground">Filebrowser</span>
+                <span className="font-medium">Abrir →</span>
+              </a>
             </div>
           </div>
         </div>

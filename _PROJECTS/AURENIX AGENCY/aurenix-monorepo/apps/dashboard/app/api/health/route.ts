@@ -3,10 +3,11 @@ import { NextRequest, NextResponse } from 'next/server';
 const N8N_API_URL = process.env.N8N_API_URL || 'https://n8n.aurenix.cloud';
 const N8N_API_KEY = process.env.N8N_API_KEY || '';
 
-// Workflow IDs for S1 and S2 — update after confirming in n8n
 const WORKFLOW_IDS: Record<string, string> = {
   s1_vps_guard: process.env.S1_WORKFLOW_ID || '',
   s2_workflow_sentinel: process.env.S2_WORKFLOW_ID || '',
+  s3_system_factory: process.env.S3_WORKFLOW_ID || '',
+  s5_the_oracle: process.env.S5_WORKFLOW_ID || '',
 };
 
 type SystemStatus = 'operational' | 'degraded' | 'down' | 'alert' | 'unknown';
@@ -15,10 +16,13 @@ interface SystemHealth {
   status: SystemStatus;
   lastCheck: string;
   message: string;
+  errorCount24h: number;
+  successCount24h: number;
   lastExecution?: {
     id: string;
     finished: boolean;
     status: string;
+    stoppedAt: string;
   };
 }
 
@@ -28,77 +32,100 @@ async function getWorkflowHealth(workflowId: string, systemName: string): Promis
       status: 'unknown',
       lastCheck: new Date().toISOString(),
       message: `${systemName}: API key o workflow ID no configurado`,
+      errorCount24h: 0,
+      successCount24h: 0,
     };
   }
 
   try {
-    const res = await fetch(
-      `${N8N_API_URL}/api/v1/executions?workflowId=${workflowId}&limit=1&status=error`,
-      {
-        headers: { 'X-N8N-API-KEY': N8N_API_KEY },
-        next: { revalidate: 60 },
-      }
-    );
+    // FIX: Filter by last 24h to avoid marking old errors as current alerts
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 
-    if (!res.ok) {
+    const [errorRes, successRes] = await Promise.all([
+      fetch(
+        `${N8N_API_URL}/api/v1/executions?workflowId=${workflowId}&limit=50&status=error&startedAfter=${since}`,
+        {
+          headers: { 'X-N8N-API-KEY': N8N_API_KEY },
+          next: { revalidate: 60 },
+        }
+      ),
+      fetch(
+        `${N8N_API_URL}/api/v1/executions?workflowId=${workflowId}&limit=50&status=success&startedAfter=${since}`,
+        {
+          headers: { 'X-N8N-API-KEY': N8N_API_KEY },
+          next: { revalidate: 60 },
+        }
+      ),
+    ]);
+
+    if (!errorRes.ok || !successRes.ok) {
       return {
         status: 'unknown',
         lastCheck: new Date().toISOString(),
-        message: `n8n API error: ${res.status}`,
+        message: `n8n API error: ${errorRes.status}/${successRes.status}`,
+        errorCount24h: 0,
+        successCount24h: 0,
       };
     }
 
-    const errorData = await res.json();
-    const recentErrors = errorData.data?.length || 0;
+    const errorData = await errorRes.json();
+    const successData = await successRes.json();
+    const errorCount = errorData.data?.length || 0;
+    const successCount = successData.data?.length || 0;
+    const lastSuccess = successData.data?.[0];
+    const totalExecs = errorCount + successCount;
 
-    // Get last successful execution
-    const successRes = await fetch(
-      `${N8N_API_URL}/api/v1/executions?workflowId=${workflowId}&limit=1&status=success`,
-      {
-        headers: { 'X-N8N-API-KEY': N8N_API_KEY },
-        next: { revalidate: 60 },
-      }
-    );
-
-    let lastSuccess = null;
-    if (successRes.ok) {
-      const successData = await successRes.json();
-      lastSuccess = successData.data?.[0];
+    let status: SystemStatus;
+    if (totalExecs === 0) {
+      status = 'unknown';
+    } else if (errorCount === 0) {
+      status = 'operational';
+    } else if (errorCount > 0 && successCount > 0) {
+      status = errorCount / totalExecs > 0.5 ? 'alert' : 'degraded';
+    } else {
+      status = 'down';
     }
 
-    const status: SystemStatus = recentErrors > 0 ? 'alert' : 'operational';
     const lastCheck = lastSuccess?.stoppedAt || new Date().toISOString();
 
     return {
       status,
       lastCheck,
-      message: recentErrors > 0
-        ? `${recentErrors} error(es) reciente(s)`
-        : `Operativo. Ultima ejecucion: ${lastCheck}`,
+      message: status === 'operational'
+        ? `Operativo. ${successCount} ejecuciones exitosas (24h)`
+        : `${errorCount} error(es) en 24h, ${successCount} exitosas`,
+      errorCount24h: errorCount,
+      successCount24h: successCount,
       lastExecution: lastSuccess ? {
         id: lastSuccess.id,
         finished: lastSuccess.finished,
         status: lastSuccess.status,
+        stoppedAt: lastSuccess.stoppedAt,
       } : undefined,
     };
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : 'Unknown error';
     return {
       status: 'down',
       lastCheck: new Date().toISOString(),
-      message: `Error conectando a n8n: ${error.message}`,
+      message: `Error conectando a n8n: ${msg}`,
+      errorCount24h: 0,
+      successCount24h: 0,
     };
   }
 }
 
 export async function GET() {
-  const [s1, s2] = await Promise.all([
-    getWorkflowHealth(WORKFLOW_IDS.s1_vps_guard, 'S1 VPS Guard'),
-    getWorkflowHealth(WORKFLOW_IDS.s2_workflow_sentinel, 'S2 Workflow Sentinel'),
-  ]);
+  const entries = Object.entries(WORKFLOW_IDS);
+  const results = await Promise.all(
+    entries.map(([key, id]) => getWorkflowHealth(id, key))
+  );
+
+  const systems: Record<string, SystemHealth> = {};
+  entries.forEach(([key], i) => { systems[key] = results[i]; });
 
   return NextResponse.json({
-    s1_vps_guard: s1,
-    s2_workflow_sentinel: s2,
+    ...systems,
     timestamp: new Date().toISOString(),
   });
 }
@@ -106,9 +133,9 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    // Webhook endpoint for n8n to push status updates
     return NextResponse.json({ success: true, received: body });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : 'Unknown error';
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }

@@ -1,0 +1,375 @@
+{
+  "name": "S2 ULTIMATE: Workflow Sentinel (Global Error Handler + Dedup + DLQ)",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "err-trigger-01",
+      "name": "ErrorTrigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse error data con campos extendidos\nconst exec = $json.execution || {};\nconst wf = $json.workflow || {};\nconst error = exec.error || {};\n\nconst errorData = {\n  workflowId: wf.id || 'unknown',\n  workflowName: wf.name || 'unknown',\n  executionId: exec.id || 'unknown',\n  executionUrl: exec.url || '',\n  errorName: error.name || 'UnknownError',\n  errorMessage: error.message || 'No message',\n  errorStack: (error.stack || '').substring(0, 500),\n  failedNode: exec.lastNodeExecuted || 'unknown',\n  timestamp: new Date().toISOString(),\n  retryOf: exec.retryOf || null,\n  mode: exec.mode || 'unknown'\n};\n\nreturn [{ json: errorData }];"
+      },
+      "id": "parse-err-01",
+      "name": "ParseErrorData",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [240, 0],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Alert Dedup: skip if same workflowId+errorMessage within 30min\nconst staticData = $getWorkflowStaticData('global');\nconst errorData = $input.first().json;\nconst dedupKey = `${errorData.workflowId}::${errorData.errorMessage}`.substring(0, 200);\nconst now = Date.now();\nconst lastSeen = staticData[dedupKey] || 0;\n\n// Clean old entries (>60min)\nfor (const key of Object.keys(staticData)) {\n  if (typeof staticData[key] === 'number' && now - staticData[key] > 60 * 60 * 1000) {\n    delete staticData[key];\n  }\n}\n\nif (now - lastSeen < 30 * 60 * 1000) {\n  // Duplicate within 30min — log silently, skip alert\n  return [{ json: { ...errorData, _dedup: 'SKIPPED', _dedupKey: dedupKey } }];\n}\n\nstaticData[dedupKey] = now;\nreturn [{ json: { ...errorData, _dedup: 'NEW', _dedupKey: dedupKey } }];"
+      },
+      "id": "dedup-01",
+      "name": "AlertDedup",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [480, 0],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "" },
+          "conditions": [
+            {
+              "leftValue": "={{ $json._dedup }}",
+              "rightValue": "NEW",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "if-new-01",
+      "name": "IfNewAlert",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [720, 0]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "Analiza este error de n8n y categoriza su severidad:\n\nFlujo: {{ $json.workflowName }} (ID: {{ $json.workflowId }})\nNodo: {{ $json.failedNode }}\nError: {{ $json.errorName }}: {{ $json.errorMessage }}\nStack: {{ $json.errorStack }}\nModo: {{ $json.mode }}",
+        "options": {
+          "systemMessage": "Eres S2 Workflow Sentinel Ultimate de AURENIX. Analiza errores de n8n y categorizalos.\n\nCATEGORIAS DE SEVERIDAD:\n- CRITICAL: Servicios caidos (DB, SSH, API principal), errores de autenticacion, workflows de produccion de clientes.\n- HIGH: Errores repetitivos, timeouts, rate limits, fallos en integraciones externas.\n- MEDIUM: Errores puntuales, datos malformados, nodos de test fallidos.\n- LOW: Warnings, deprecaciones, errores en workflows de desarrollo/test.\n\nRESPONDE SIEMPRE en JSON puro (sin markdown):\n{\n  \"severity\": \"CRITICAL\" | \"HIGH\" | \"MEDIUM\" | \"LOW\",\n  \"cause\": \"Explicacion simple de por que fallo (max 2 lineas)\",\n  \"recommendation\": \"Paso tecnico exacto para arreglarlo\",\n  \"impact\": \"Impacto en operaciones (Critico/Alto/Medio/Bajo)\",\n  \"category\": \"AUTH|NETWORK|DATA|TIMEOUT|RESOURCE|LOGIC|EXTERNAL|UNKNOWN\",\n  \"auto_recoverable\": true | false\n}"
+        }
+      },
+      "id": "cerebro-qa-01",
+      "name": "CerebroQA",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.4,
+      "position": [960, -20],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "modelName": "llama3-70b-8192",
+        "options": {
+          "temperature": 0.05
+        }
+      },
+      "id": "groq-qa-01",
+      "name": "GroqModelQA",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
+      "typeVersion": 1,
+      "position": [960, 220],
+      "credentials": {
+        "groqApi": {
+          "id": "3xX3Du0zMIty4shQ",
+          "name": "Groq account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse AI analysis con fallback robusto\ntry {\n  let raw = $input.first().json.text;\n  if (raw.includes('```json')) raw = raw.replace(/```json\\n?/g, '').replace(/```\\n?/g, '');\n  else if (raw.includes('```')) raw = raw.replace(/```\\n?/g, '');\n  \n  const analysis = JSON.parse(raw.trim());\n  const errorData = $('ParseErrorData').first().json;\n  \n  return [{ json: { ...errorData, ...analysis } }];\n} catch (e) {\n  const errorData = $('ParseErrorData').first().json;\n  return [{ json: { ...errorData, severity: 'MEDIUM', cause: 'Error parseando analisis IA: ' + e.message, recommendation: 'Revisar manualmente', impact: 'Medio', category: 'UNKNOWN', auto_recoverable: false } }];\n}"
+      },
+      "id": "merge-analysis-01",
+      "name": "MergeAnalysis",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1200, -20],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": { "caseSensitive": true, "leftValue": "" },
+                "conditions": [{ "leftValue": "={{ $json.severity }}", "rightValue": "CRITICAL", "operator": { "type": "string", "operation": "equals" } }],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputLabel": "CRITICAL"
+            },
+            {
+              "conditions": {
+                "options": { "caseSensitive": true, "leftValue": "" },
+                "conditions": [{ "leftValue": "={{ $json.severity }}", "rightValue": "HIGH", "operator": { "type": "string", "operation": "equals" } }],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputLabel": "HIGH"
+            },
+            {
+              "conditions": {
+                "options": { "caseSensitive": true, "leftValue": "" },
+                "conditions": [{ "leftValue": "={{ $json.severity }}", "rightValue": "MEDIUM", "operator": { "type": "string", "operation": "equals" } }],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputLabel": "MEDIUM"
+            },
+            {
+              "conditions": {
+                "options": { "caseSensitive": true, "leftValue": "" },
+                "conditions": [{ "leftValue": "={{ $json.severity }}", "rightValue": "LOW", "operator": { "type": "string", "operation": "equals" } }],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputLabel": "LOW"
+            }
+          ]
+        },
+        "options": { "fallbackOutput": "extra" }
+      },
+      "id": "switch-sev-01",
+      "name": "SwitchSeverity",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [1440, -20],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "chatId": "501092522",
+        "text": "=\ud83d\udea8 *S2 SENTINEL \u2014 ERROR CRITICO* \ud83d\udea8\n\n*Flujo:* `{{ $json.workflowName }}`\n*Nodo:* `{{ $json.failedNode }}`\n*Error:* _{{ $json.errorMessage }}_\n\n*Analisis IA:*\n*Causa:* {{ $json.cause }}\n*Recomendacion:* {{ $json.recommendation }}\n*Impacto:* {{ $json.impact }}\n*Categoria:* {{ $json.category }}\n*Auto-recuperable:* {{ $json.auto_recoverable ? 'Si' : 'No' }}\n\n[Ver ejecucion]({{ $json.executionUrl }})",
+        "additionalFields": { "parse_mode": "Markdown" }
+      },
+      "id": "tel-crit-01",
+      "name": "TelegramCRITICAL",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1680, -200],
+      "credentials": {
+        "telegramApi": { "id": "j286Y4Q9S28CG36j", "name": "Telegram bot" }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "chatId": "501092522",
+        "text": "=\u26a0\ufe0f *S2 SENTINEL \u2014 ERROR HIGH*\n\n*Flujo:* `{{ $json.workflowName }}`\n*Nodo:* `{{ $json.failedNode }}`\n*Error:* _{{ $json.errorMessage }}_\n\n*Causa:* {{ $json.cause }}\n*Fix:* {{ $json.recommendation }}\n*Categoria:* {{ $json.category }}",
+        "additionalFields": { "parse_mode": "Markdown" }
+      },
+      "id": "tel-high-01",
+      "name": "TelegramHIGH",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1680, -20],
+      "credentials": {
+        "telegramApi": { "id": "j286Y4Q9S28CG36j", "name": "Telegram bot" }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "fileName": "=/data/agencia/backups/sentinel_errors.jsonl",
+        "fileContent": "={{ JSON.stringify({ timestamp: $json.timestamp, severity: $json.severity, workflow: $json.workflowName, node: $json.failedNode, error: $json.errorMessage, category: $json.category, cause: $json.cause, recommendation: $json.recommendation, dedup: $json._dedup || 'N/A' }) }}\n"
+      },
+      "id": "log-all-01",
+      "name": "LogAllErrors",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [1920, 100]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "fileName": "=/data/agencia/backups/sentinel_medium_low.jsonl",
+        "fileContent": "={{ JSON.stringify({ timestamp: $json.timestamp, severity: $json.severity, workflow: $json.workflowName, error: $json.errorMessage, category: $json.category }) }}\n"
+      },
+      "id": "log-medium-01",
+      "name": "LogMEDIUM",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [1680, 200]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "fileName": "=/data/agencia/backups/sentinel_medium_low.jsonl",
+        "fileContent": "={{ JSON.stringify({ timestamp: $json.timestamp, severity: $json.severity, workflow: $json.workflowName, error: $json.errorMessage, category: $json.category }) }}\n"
+      },
+      "id": "log-low-01",
+      "name": "LogLOW",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [1680, 380]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "fileName": "=/data/agencia/backups/sentinel_dedup_skipped.jsonl",
+        "fileContent": "={{ JSON.stringify({ timestamp: new Date().toISOString(), skipped: true, workflow: $json.workflowName, error: $json.errorMessage, dedupKey: $json._dedupKey }) }}\n"
+      },
+      "id": "log-dedup-01",
+      "name": "LogDedupSkipped",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [960, 200]
+    },
+    {
+      "parameters": {},
+      "id": "err-internal-01",
+      "name": "ErrorTriggerS2Internal",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [0, 600]
+    },
+    {
+      "parameters": {
+        "jsCode": "// DLQ: Si S2 falla internamente, guardar el error raw para reprocesar\nconst raw = JSON.stringify($json);\nconst dlqEntry = {\n  timestamp: new Date().toISOString(),\n  source: 'S2_INTERNAL_FAILURE',\n  raw_payload: raw.substring(0, 5000)\n};\nreturn [{ json: dlqEntry }];"
+      },
+      "id": "dlq-01",
+      "name": "DLQWrite",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [240, 600]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "fileName": "=/data/agencia/backups/dlq/sentinel_dlq.jsonl",
+        "fileContent": "={{ JSON.stringify($json) }}\n"
+      },
+      "id": "dlq-file-01",
+      "name": "DLQFile",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [480, 600],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "chatId": "501092522",
+        "text": "=\ud83d\udc80 *S2 SENTINEL \u2014 FALLO INTERNO*\n\nEl propio Sentinel ha fallado. Error guardado en DLQ.\n*Error:* {{ $json.raw_payload ? $json.raw_payload.substring(0, 500) : 'Ver DLQ' }}\n\nRevisa `/data/agencia/backups/dlq/sentinel_dlq.jsonl`",
+        "additionalFields": { "parse_mode": "Markdown" }
+      },
+      "id": "tel-dlq-01",
+      "name": "TelegramDLQAlert",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [720, 600],
+      "credentials": {
+        "telegramApi": { "id": "j286Y4Q9S28CG36j", "name": "Telegram bot" }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "fileName": "=/data/agencia/backups/dlq/sentinel_dlq_fallback.jsonl",
+        "fileContent": "={{ JSON.stringify({ timestamp: new Date().toISOString(), note: 'Telegram DLQ alert also failed', raw: JSON.stringify($json).substring(0, 2000) }) }}\n"
+      },
+      "id": "dlq-fallback-01",
+      "name": "DLQFallbackFile",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [960, 600]
+    }
+  ],
+  "connections": {
+    "ErrorTrigger": {
+      "main": [[{ "node": "ParseErrorData", "type": "main", "index": 0 }]]
+    },
+    "ParseErrorData": {
+      "main": [
+        [{ "node": "AlertDedup", "type": "main", "index": 0 }],
+        [{ "node": "AlertDedup", "type": "main", "index": 0 }]
+      ]
+    },
+    "AlertDedup": {
+      "main": [
+        [{ "node": "IfNewAlert", "type": "main", "index": 0 }],
+        [{ "node": "IfNewAlert", "type": "main", "index": 0 }]
+      ]
+    },
+    "IfNewAlert": {
+      "main": [
+        [{ "node": "CerebroQA", "type": "main", "index": 0 }],
+        [{ "node": "LogDedupSkipped", "type": "main", "index": 0 }]
+      ]
+    },
+    "GroqModelQA": {
+      "ai_languageModel": [[{ "node": "CerebroQA", "type": "ai_languageModel", "index": 0 }]]
+    },
+    "CerebroQA": {
+      "main": [
+        [{ "node": "MergeAnalysis", "type": "main", "index": 0 }],
+        [{ "node": "MergeAnalysis", "type": "main", "index": 0 }]
+      ]
+    },
+    "MergeAnalysis": {
+      "main": [
+        [{ "node": "SwitchSeverity", "type": "main", "index": 0 }],
+        [{ "node": "SwitchSeverity", "type": "main", "index": 0 }]
+      ]
+    },
+    "SwitchSeverity": {
+      "main": [
+        [{ "node": "TelegramCRITICAL", "type": "main", "index": 0 }],
+        [{ "node": "TelegramHIGH", "type": "main", "index": 0 }],
+        [{ "node": "LogMEDIUM", "type": "main", "index": 0 }],
+        [{ "node": "LogLOW", "type": "main", "index": 0 }]
+      ]
+    },
+    "TelegramCRITICAL": {
+      "main": [
+        [{ "node": "LogAllErrors", "type": "main", "index": 0 }],
+        [{ "node": "LogAllErrors", "type": "main", "index": 0 }]
+      ]
+    },
+    "TelegramHIGH": {
+      "main": [
+        [{ "node": "LogAllErrors", "type": "main", "index": 0 }],
+        [{ "node": "LogAllErrors", "type": "main", "index": 0 }]
+      ]
+    },
+    "LogMEDIUM": {
+      "main": [[{ "node": "LogAllErrors", "type": "main", "index": 0 }]]
+    },
+    "LogLOW": {
+      "main": [[{ "node": "LogAllErrors", "type": "main", "index": 0 }]]
+    },
+    "ErrorTriggerS2Internal": {
+      "main": [[{ "node": "DLQWrite", "type": "main", "index": 0 }]]
+    },
+    "DLQWrite": {
+      "main": [[{ "node": "DLQFile", "type": "main", "index": 0 }]]
+    },
+    "DLQFile": {
+      "main": [
+        [{ "node": "TelegramDLQAlert", "type": "main", "index": 0 }],
+        [{ "node": "DLQFallbackFile", "type": "main", "index": 0 }]
+      ]
+    },
+    "TelegramDLQAlert": {
+      "main": [],
+      "error": [[{ "node": "DLQFallbackFile", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  }
+}

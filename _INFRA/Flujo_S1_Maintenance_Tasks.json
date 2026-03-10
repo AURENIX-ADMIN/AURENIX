@@ -1,0 +1,175 @@
+{
+  "name": "S1-Maintenance-Tasks",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "mt-trigger",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 4 * * 0"
+            }
+          ]
+        }
+      },
+      "id": "mt-cron",
+      "name": "Weekly Cron (Sun 4AM)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const task = $input.first().json.task || 'unknown';\nconst presets = {\n  'docker-prune': 'docker system prune -af --filter \"until=72h\"',\n  'log-rotate': 'find /var/log -name \"*.log\" -size +100M -exec truncate -s 0 {} \\\\;',\n  'backup-now': 'bash /usr/local/bin/aurenix-backup-pro.sh',\n  'ssl-check': 'certbot certificates',\n  'disk-report': 'du -sh /data/* | sort -rh',\n  'pg-vacuum': 'docker exec $(docker ps -qf name=postgresql) psql -U n8n -c \"VACUUM ANALYZE;\"'\n};\n\nif (!presets[task]) {\n  return [{ json: { valid: false, task, error: 'Unknown preset. Available: ' + Object.keys(presets).join(', ') } }];\n}\nreturn [{ json: { valid: true, task, command: presets[task] } }];"
+      },
+      "id": "mt-resolve",
+      "name": "Resolve Preset",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        260,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { valid: true, task: 'docker-prune', command: 'docker system prune -af --filter \"until=72h\"' } }];"
+      },
+      "id": "mt-weekly-preset",
+      "name": "Weekly Docker Prune Preset",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        260,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": ""
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.valid }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "mt-if-valid",
+      "name": "If Valid Preset",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        520,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "command": "={{ $json.command }}",
+        "cwd": "/"
+      },
+      "id": "mt-ssh",
+      "name": "SSH Execute Maintenance",
+      "type": "n8n-nodes-base.ssh",
+      "typeVersion": 1,
+      "position": [
+        760,
+        350
+      ],
+      "credentials": {
+        "sshPrivateKey": {
+          "id": "zwKkkBrd5NcbMFZ3",
+          "name": "aurenix_it_agent SSH"
+        }
+      },
+      "onError": "continueErrorOutput"
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Resolve Preset",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Weekly Cron (Sun 4AM)": {
+      "main": [
+        [
+          {
+            "node": "Weekly Docker Prune Preset",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolve Preset": {
+      "main": [
+        [
+          {
+            "node": "If Valid Preset",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Weekly Docker Prune Preset": {
+      "main": [
+        [
+          {
+            "node": "If Valid Preset",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If Valid Preset": {
+      "main": [
+        [
+          {
+            "node": "SSH Execute Maintenance",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  }
+}

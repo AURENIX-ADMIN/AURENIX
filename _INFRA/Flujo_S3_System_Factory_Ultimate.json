@@ -1,0 +1,389 @@
+{
+  "name": "S3 ULTIMATE: System Factory (Auto-Builder + HITL + Rate Limiter + Schema Validation)",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": ["message"]
+      },
+      "id": "tel-trigger-01",
+      "name": "TelegramTrigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.1,
+      "position": [0, 0],
+      "credentials": {
+        "telegramApi": { "id": "j286Y4Q9S28CG36j", "name": "Telegram bot" }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": false, "leftValue": "" },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.message.from.id }}",
+              "rightValue": 501092522,
+              "operator": { "type": "number", "operation": "equals" }
+            },
+            {
+              "leftValue": "={{ $json.message.text }}",
+              "rightValue": "/create",
+              "operator": { "type": "string", "operation": "startsWith" }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "zt-01",
+      "name": "ZeroTrustCreateCheck",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [240, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Rate limiter: max 5 workflows/hora + extract prompt\nconst staticData = $getWorkflowStaticData('global');\nconst now = Date.now();\nconst HOUR = 60 * 60 * 1000;\nconst MAX_PER_HOUR = 5;\n\n// Clean old entries\nif (!staticData.createLog) staticData.createLog = [];\nstaticData.createLog = staticData.createLog.filter(ts => now - ts < HOUR);\n\nconst text = $input.first().json.message.text;\nconst prompt = text.replace('/create', '').trim();\nconst chatId = $input.first().json.message.chat.id;\n\nif (!prompt) {\n  return [{ json: { error: 'USAGE', message: 'Uso: /create <descripcion del workflow>', chatId } }];\n}\n\nif (staticData.createLog.length >= MAX_PER_HOUR) {\n  return [{ json: { error: 'RATE_LIMIT', message: `Rate limit: max ${MAX_PER_HOUR} workflows/hora. Intenta en ${Math.ceil((staticData.createLog[0] + HOUR - now) / 60000)} min.`, chatId } }];\n}\n\nstaticData.createLog.push(now);\nreturn [{ json: { prompt, chatId, error: false } }];"
+      },
+      "id": "extract-01",
+      "name": "ExtractValidateRateLimit",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [480, 0],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": false, "leftValue": "" },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.error }}",
+              "rightValue": false,
+              "operator": { "type": "boolean", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "if-valid-01",
+      "name": "IfValidPrompt",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [720, 0]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.prompt }}",
+        "options": {
+          "systemMessage": "Eres S3 System Factory Ultimate de AURENIX, un arquitecto de automatizacion experto en n8n.\n\nGENERA un flujo de n8n valido basado en la peticion del usuario.\n\nREGLAS CRITICAS:\n1. Responde UNICAMENTE con JSON puro, sin markdown, sin explicaciones.\n2. El JSON debe tener esta estructura exacta:\n{\n  \"name\": \"Nombre descriptivo del flujo\",\n  \"nodes\": [ ... array de nodos n8n validos ... ],\n  \"connections\": { ... conexiones entre nodos ... }\n}\n\n3. NODOS PERMITIDOS (whitelist):\n   - Triggers: scheduleTrigger, webhook, telegramTrigger, emailTrigger\n   - Logic: if, switch, code, merge, splitInBatches, wait\n   - Actions: httpRequest, telegram, ssh, readWriteFile, emailSend\n   - AI: chainLlm, lmChatGroq, lmChatOpenAi\n   - Data: set, dateTime, crypto\n   - NO usar nodos que no esten en esta lista\n\n4. OBLIGATORIO en cada flujo:\n   - Incluir posiciones (x, y) para organizacion visual\n   - onError: continueErrorOutput en nodos criticos (httpRequest, ssh, LLM)\n   - Nombres SIN espacios (usar camelCase o guiones)\n   - Credenciales con placeholder IDs\n\n5. PROHIBIDO:\n   - Hardcodear credenciales reales\n   - Crear flujos con mas de 20 nodos\n   - Usar nodos deprecados\n   - Crear flujos sin trigger\n\n6. El flujo debe crearse con active: false por seguridad."
+        }
+      },
+      "id": "cerebro-factory-01",
+      "name": "CerebroFactory",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.4,
+      "position": [960, -20],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "modelName": "llama3-70b-8192",
+        "options": { "temperature": 0.15 }
+      },
+      "id": "groq-factory-01",
+      "name": "GroqModelFactory",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
+      "typeVersion": 1,
+      "position": [960, 200],
+      "credentials": {
+        "groqApi": { "id": "3xX3Du0zMIty4shQ", "name": "Groq account" }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Schema Validator: valida estructura del workflow generado\ntry {\n  let raw = $input.first().json.text;\n  if (raw.includes('```json')) raw = raw.replace(/```json\\n?/g, '').replace(/```\\n?/g, '');\n  else if (raw.includes('```')) raw = raw.replace(/```\\n?/g, '');\n  \n  const wf = JSON.parse(raw.trim());\n  const errors = [];\n  \n  if (!wf.name || typeof wf.name !== 'string') errors.push('Falta nombre del workflow');\n  if (!Array.isArray(wf.nodes) || wf.nodes.length === 0) errors.push('Falta array de nodos');\n  if (!wf.connections || typeof wf.connections !== 'object') errors.push('Falta objeto de conexiones');\n  \n  const allowedTypes = [\n    'n8n-nodes-base.scheduleTrigger', 'n8n-nodes-base.webhook', 'n8n-nodes-base.telegramTrigger',\n    'n8n-nodes-base.emailTrigger', 'n8n-nodes-base.if', 'n8n-nodes-base.switch',\n    'n8n-nodes-base.code', 'n8n-nodes-base.merge', 'n8n-nodes-base.splitInBatches',\n    'n8n-nodes-base.wait', 'n8n-nodes-base.httpRequest', 'n8n-nodes-base.telegram',\n    'n8n-nodes-base.ssh', 'n8n-nodes-base.readWriteFile', 'n8n-nodes-base.emailSend',\n    '@n8n/n8n-nodes-langchain.chainLlm', '@n8n/n8n-nodes-langchain.lmChatGroq',\n    '@n8n/n8n-nodes-langchain.lmChatOpenAi', 'n8n-nodes-base.set',\n    'n8n-nodes-base.dateTime', 'n8n-nodes-base.crypto', 'n8n-nodes-base.errorTrigger',\n    'n8n-nodes-base.noOp', 'n8n-nodes-base.rssFeedRead'\n  ];\n  \n  if (wf.nodes) {\n    if (wf.nodes.length > 20) errors.push('Demasiados nodos (max 20): ' + wf.nodes.length);\n    const hasTrigger = wf.nodes.some(n => n.type && (n.type.includes('Trigger') || n.type.includes('trigger') || n.type.includes('webhook')));\n    if (!hasTrigger) errors.push('No tiene nodo trigger');\n    for (const node of wf.nodes) {\n      if (!node.type) { errors.push('Nodo sin tipo: ' + JSON.stringify(node).substring(0, 100)); continue; }\n      if (!allowedTypes.includes(node.type) && !node.type.startsWith('@n8n/')) {\n        errors.push('Nodo no permitido: ' + node.type);\n      }\n      const nodeStr = JSON.stringify(node);\n      if (nodeStr.includes('sk-') || nodeStr.includes('gsk_') || nodeStr.includes('Bearer ')) {\n        errors.push('Credenciales hardcodeadas detectadas en nodo: ' + (node.name || node.type));\n      }\n    }\n  }\n  \n  const chatId = $('ExtractValidateRateLimit').first().json.chatId;\n  \n  if (errors.length > 0) {\n    return [{ json: { valid: false, errors, workflowName: wf.name || 'Sin nombre', nodeCount: (wf.nodes || []).length, chatId } }];\n  }\n  \n  const nodeNames = wf.nodes.map(n => n.name || n.type).join(', ');\n  return [{ json: { valid: true, workflow: wf, workflowName: wf.name, nodeCount: wf.nodes.length, nodeNames, chatId } }];\n  \n} catch (e) {\n  const chatId = $('ExtractValidateRateLimit').first().json.chatId;\n  return [{ json: { valid: false, errors: ['JSON invalido: ' + e.message], workflowName: 'Error', nodeCount: 0, chatId } }];\n}"
+      },
+      "id": "schema-validator-01",
+      "name": "SchemaValidator",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1200, -20],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": false, "leftValue": "" },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.valid }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "if-valid-schema-01",
+      "name": "IfSchemaValid",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1440, -20]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chatId }}",
+        "text": "=\ud83c\udfed *S3 SYSTEM FACTORY \u2014 PREVIEW*\n\n*Nombre:* `{{ $json.workflowName }}`\n*Nodos:* {{ $json.nodeCount }}\n*Flujo:* {{ $json.nodeNames }}\n\nResponde `/confirm` para crear el workflow o `/cancel` para cancelar.",
+        "additionalFields": { "parse_mode": "Markdown" }
+      },
+      "id": "tel-preview-01",
+      "name": "TelegramPreviewHITL",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1680, -100],
+      "credentials": {
+        "telegramApi": { "id": "j286Y4Q9S28CG36j", "name": "Telegram bot" }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "resume": "webhook",
+        "options": {
+          "webhookSuffix": "=s3-confirm-{{ $json.chatId }}"
+        }
+      },
+      "id": "wait-hitl-01",
+      "name": "WaitForConfirmHITL",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [1920, -100]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Check if user confirmed or cancelled\nconst body = $input.first().json.body || $input.first().json;\nconst text = (body.message?.text || body.text || '').trim().toLowerCase();\n\n// Get stored workflow from earlier in the chain\nconst schemaData = $('IfSchemaValid').first().json;\nconst workflowData = schemaData.workflow;\nconst chatId = schemaData.chatId;\n\nif (text === '/confirm' || text === 'confirm') {\n  return [{ json: { confirmed: true, workflow: workflowData, chatId } }];\n} else {\n  return [{ json: { confirmed: false, reason: text || 'No confirmation received', chatId } }];\n}"
+      },
+      "id": "check-confirm-01",
+      "name": "CheckConfirmation",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2160, -100]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": false, "leftValue": "" },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.confirmed }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "if-confirmed-01",
+      "name": "IfConfirmed",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [2400, -100]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://10.0.2.3:5678/api/v1/workflows",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "n8nApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ name: $json.workflow.name, nodes: $json.workflow.nodes, connections: $json.workflow.connections, active: false, settings: { executionOrder: 'v1' } }) }}",
+        "options": {}
+      },
+      "id": "n8n-api-create-01",
+      "name": "N8nApiCreateWorkflow",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2640, -200],
+      "credentials": {
+        "httpHeaderAuth": { "id": "QvOqobsyEgZ25FT3", "name": "n8n API Auth" }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "chatId": "501092522",
+        "text": "=\u2705 *S3 SYSTEM FACTORY \u2014 WORKFLOW CREADO*\n\n*Nombre:* `{{ $json.name }}`\n*ID:* `{{ $json.id }}`\n*Estado:* INACTIVO (activa manualmente tras revisar)\n\nRevisa el workflow en n8n antes de activarlo.",
+        "additionalFields": { "parse_mode": "Markdown" }
+      },
+      "id": "tel-success-01",
+      "name": "TelegramSuccess",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [2880, -200],
+      "credentials": {
+        "telegramApi": { "id": "j286Y4Q9S28CG36j", "name": "Telegram bot" }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chatId }}",
+        "text": "=\u274c *S3 SYSTEM FACTORY \u2014 CANCELADO*\n\nWorkflow no creado. Razon: {{ $json.reason || 'Cancelado por usuario' }}",
+        "additionalFields": { "parse_mode": "Markdown" }
+      },
+      "id": "tel-cancelled-01",
+      "name": "TelegramCancelled",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [2640, 0],
+      "credentials": {
+        "telegramApi": { "id": "j286Y4Q9S28CG36j", "name": "Telegram bot" }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chatId }}",
+        "text": "=\u274c *S3 SYSTEM FACTORY \u2014 VALIDACION FALLIDA*\n\n{{ $json.errors.map((e, i) => `${i+1}. ${e}`).join('\\n') }}\n\nIntenta de nuevo con una descripcion mas clara.",
+        "additionalFields": { "parse_mode": "Markdown" }
+      },
+      "id": "tel-invalid-01",
+      "name": "TelegramSchemaError",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1680, 100],
+      "credentials": {
+        "telegramApi": { "id": "j286Y4Q9S28CG36j", "name": "Telegram bot" }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chatId || '501092522' }}",
+        "text": "={{ $json.message }}",
+        "additionalFields": { "parse_mode": "Markdown" }
+      },
+      "id": "tel-usage-01",
+      "name": "TelegramUsageError",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [960, 140],
+      "credentials": {
+        "telegramApi": { "id": "j286Y4Q9S28CG36j", "name": "Telegram bot" }
+      }
+    },
+    {
+      "parameters": {},
+      "id": "err-trigger-s3-01",
+      "name": "ErrorTriggerS3Internal",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [0, 400]
+    },
+    {
+      "parameters": {
+        "chatId": "501092522",
+        "text": "=\ud83d\udc80 *S3 SYSTEM FACTORY \u2014 FALLO INTERNO*\n\n*Error:* {{ $json.execution?.error?.message || 'Error desconocido' }}\n*Nodo:* {{ $json.execution?.lastNodeExecuted || 'N/A' }}",
+        "additionalFields": { "parse_mode": "Markdown" }
+      },
+      "id": "tel-internal-err-01",
+      "name": "TelegramS3InternalError",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [240, 400],
+      "credentials": {
+        "telegramApi": { "id": "j286Y4Q9S28CG36j", "name": "Telegram bot" }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "fileName": "=/data/agencia/backups/s3_factory_log.jsonl",
+        "fileContent": "={{ JSON.stringify({ timestamp: new Date().toISOString(), action: $json.confirmed ? 'CREATED' : 'CANCELLED', workflowName: $json.workflow?.name || $json.name || 'N/A', workflowId: $json.id || 'N/A' }) }}\n"
+      },
+      "id": "log-factory-01",
+      "name": "LogFactoryAction",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [2880, 0]
+    }
+  ],
+  "connections": {
+    "TelegramTrigger": {
+      "main": [[{ "node": "ZeroTrustCreateCheck", "type": "main", "index": 0 }]]
+    },
+    "ZeroTrustCreateCheck": {
+      "main": [
+        [{ "node": "ExtractValidateRateLimit", "type": "main", "index": 0 }]
+      ]
+    },
+    "ExtractValidateRateLimit": {
+      "main": [
+        [{ "node": "IfValidPrompt", "type": "main", "index": 0 }],
+        [{ "node": "TelegramUsageError", "type": "main", "index": 0 }]
+      ]
+    },
+    "IfValidPrompt": {
+      "main": [
+        [{ "node": "CerebroFactory", "type": "main", "index": 0 }],
+        [{ "node": "TelegramUsageError", "type": "main", "index": 0 }]
+      ]
+    },
+    "GroqModelFactory": {
+      "ai_languageModel": [[{ "node": "CerebroFactory", "type": "ai_languageModel", "index": 0 }]]
+    },
+    "CerebroFactory": {
+      "main": [
+        [{ "node": "SchemaValidator", "type": "main", "index": 0 }],
+        [{ "node": "SchemaValidator", "type": "main", "index": 0 }]
+      ]
+    },
+    "SchemaValidator": {
+      "main": [
+        [{ "node": "IfSchemaValid", "type": "main", "index": 0 }],
+        [{ "node": "IfSchemaValid", "type": "main", "index": 0 }]
+      ]
+    },
+    "IfSchemaValid": {
+      "main": [
+        [{ "node": "TelegramPreviewHITL", "type": "main", "index": 0 }],
+        [{ "node": "TelegramSchemaError", "type": "main", "index": 0 }]
+      ]
+    },
+    "TelegramPreviewHITL": {
+      "main": [
+        [{ "node": "WaitForConfirmHITL", "type": "main", "index": 0 }],
+        [{ "node": "WaitForConfirmHITL", "type": "main", "index": 0 }]
+      ]
+    },
+    "WaitForConfirmHITL": {
+      "main": [[{ "node": "CheckConfirmation", "type": "main", "index": 0 }]]
+    },
+    "CheckConfirmation": {
+      "main": [[{ "node": "IfConfirmed", "type": "main", "index": 0 }]]
+    },
+    "IfConfirmed": {
+      "main": [
+        [{ "node": "N8nApiCreateWorkflow", "type": "main", "index": 0 }],
+        [{ "node": "TelegramCancelled", "type": "main", "index": 0 }]
+      ]
+    },
+    "N8nApiCreateWorkflow": {
+      "main": [
+        [{ "node": "TelegramSuccess", "type": "main", "index": 0 }]
+      ]
+    },
+    "TelegramSuccess": {
+      "main": [[{ "node": "LogFactoryAction", "type": "main", "index": 0 }]]
+    },
+    "TelegramCancelled": {
+      "main": [[{ "node": "LogFactoryAction", "type": "main", "index": 0 }]]
+    },
+    "ErrorTriggerS3Internal": {
+      "main": [[{ "node": "TelegramS3InternalError", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  }
+}

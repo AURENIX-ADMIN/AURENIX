@@ -17,6 +17,7 @@ import {
   Bell,
   FileText,
   Zap,
+  Server,
 } from 'lucide-react';
 
 interface NavItem {
@@ -28,7 +29,8 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   { href: '/dashboard', label: 'Overview', icon: LayoutDashboard },
-  { href: '/dashboard/agents', label: 'AI Agents', icon: Bot, badge: '3' },
+  { href: '/dashboard/systems', label: 'Sistemas Core', icon: Server },
+  { href: '/dashboard/agents', label: 'AI Agents', icon: Bot },
   { href: '/dashboard/vantage', label: 'VANTAGE', icon: FileText },
   { href: '/dashboard/activity', label: 'Activity', icon: Activity },
   { href: '/dashboard/team', label: 'Team', icon: Users },

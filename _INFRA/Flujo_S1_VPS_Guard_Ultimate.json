@@ -1,0 +1,1147 @@
+{
+  "name": "S1 VPS Guard Ultimate",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 30
+            }
+          ]
+        }
+      },
+      "id": "m-cron",
+      "name": "Schedule (30 min)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": "bdbvv6Vw7NOXVEjV"
+      },
+      "id": "m-exec-health",
+      "name": "Execute Health Collector",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        260,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Alert Dedup + Trend Detection using Static Data\nconst state = $getWorkflowStaticData('global');\nconst data = $input.first().json;\nconst now = Date.now();\n\n// Initialize state\nif (!state.lastSeverity) state.lastSeverity = 'HEALTHY';\nif (!state.lastAlertTime) state.lastAlertTime = 0;\nif (!state.lastIssueKeys) state.lastIssueKeys = [];\nif (!state.lastMetrics) state.lastMetrics = {};\nif (!state.cachedHealth) state.cachedHealth = {};\n\n// Cache health for /status command\nstate.cachedHealth = {\n  severity: data.severity,\n  summary: data.summary,\n  timestamp: data.timestamp,\n  issues: data.issues,\n  metrics: data.metrics,\n  cached_at: new Date().toISOString()\n};\n\n// Generate issue fingerprint for dedup\nconst currentKeys = (data.issues || []).map(i => i.component + ':' + i.severity).sort().join(',');\nconst prevKeys = (state.lastIssueKeys || []).join(',');\n\n// Determine if we should alert\nlet shouldAlert = false;\nlet alertReason = '';\n\nif (data.severity === 'CRITICAL') {\n  if (state.lastSeverity !== 'CRITICAL') {\n    shouldAlert = true; alertReason = 'NEW_CRITICAL';\n  } else if (currentKeys !== prevKeys) {\n    shouldAlert = true; alertReason = 'CHANGED_ISSUES';\n  } else if (now - state.lastAlertTime > 7200000) { // 2h\n    shouldAlert = true; alertReason = 'CRITICAL_PERSISTENT_2H';\n  }\n} else if (data.severity === 'WARNING') {\n  if (state.lastSeverity === 'CRITICAL') {\n    shouldAlert = true; alertReason = 'RECOVERY_TO_WARNING';\n  } else if (state.lastSeverity !== 'WARNING') {\n    shouldAlert = true; alertReason = 'NEW_WARNING';\n  } else if (currentKeys !== prevKeys) {\n    shouldAlert = true; alertReason = 'CHANGED_ISSUES';\n  } else if (now - state.lastAlertTime > 21600000) { // 6h\n    shouldAlert = true; alertReason = 'WARNING_PERSISTENT_6H';\n  }\n} else if (data.severity === 'HEALTHY') {\n  if (state.lastSeverity === 'CRITICAL' || state.lastSeverity === 'WARNING') {\n    shouldAlert = true; alertReason = 'RECOVERY';\n  }\n  // HEALTHY = silent (no spam)\n}\n\n// Trend detection\nconst trends = [];\nconst prev = state.lastMetrics || {};\nif (prev.ram_available_mb && data.metrics.ram_available_mb) {\n  const delta = prev.ram_available_mb - data.metrics.ram_available_mb;\n  if (delta > 500) trends.push('RAM dropping: -' + delta + 'MB');\n}\nif (prev.disk_root_percent && data.metrics.disk_root_percent) {\n  const delta = data.metrics.disk_root_percent - prev.disk_root_percent;\n  if (delta > 5) trends.push('Disk growing: +' + delta + '%');\n}\nif (trends.length > 0 && !shouldAlert && data.severity !== 'HEALTHY') {\n  shouldAlert = true; alertReason = 'TREND_DETECTED';\n}\n\n// Update state\nif (shouldAlert) state.lastAlertTime = now;\nstate.lastSeverity = data.severity;\nstate.lastIssueKeys = (data.issues || []).map(i => i.component + ':' + i.severity).sort();\nstate.lastMetrics = data.metrics || {};\n\nreturn [{ json: {\n  ...data,\n  should_alert: shouldAlert,\n  alert_reason: alertReason,\n  trends: trends,\n  previous_severity: state.lastSeverity\n}}];"
+      },
+      "id": "m-dedup",
+      "name": "Alert Dedup + Trends",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        520,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": ""
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.should_alert }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "m-if-alert",
+      "name": "Should Alert?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        780,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": ""
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.severity }}",
+                    "rightValue": "CRITICAL",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputLabel": "CRITICAL"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": ""
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.severity }}",
+                    "rightValue": "WARNING",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputLabel": "WARNING"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "id": "m-switch-sev",
+      "name": "Switch Severity",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        1040,
+        -60
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "501092522",
+        "text": "=🚨 *S1 VPS GUARD ULTIMATE — CRITICAL*\n\n*Reason:* {{ $json.alert_reason }}\n*Summary:* {{ $json.summary }}\n\n{{ $json.issues.map((i, idx) => `${idx+1}. [${i.component}] ${i.detail}\\n   Fix: \\`${i.fix}\\``).join('\\n\\n') }}\n\n📊 RAM {{ $json.metrics.ram_available_mb }}MB | Disk {{ $json.metrics.disk_root_percent }}% | CPU {{ $json.metrics.cpu_load_1m }} | Docker {{ $json.metrics.containers_healthy }}/{{ $json.metrics.containers_total }}{{ $json.trends.length > 0 ? '\\n\\n📈 Trends: ' + $json.trends.join(', ') : '' }}\n\nResponde `/approve <cmd>` para ejecutar un fix.",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "m-tel-critical",
+      "name": "Telegram CRITICAL",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1300,
+        -140
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "j286Y4Q9S28CG36j",
+          "name": "Telegram bot"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "chatId": "501092522",
+        "text": "={{ $json.alert_reason === 'RECOVERY' ? '✅ *S1 VPS GUARD — RECOVERY*\\n\\nAll systems back to normal.\\n' + $json.summary : '⚠️ *S1 VPS GUARD — WARNING*\\n\\n*Reason:* ' + $json.alert_reason + '\\n*Summary:* ' + $json.summary + '\\n\\n' + $json.issues.map((i, idx) => (idx+1) + '. [' + i.component + '] ' + i.detail).join('\\n') }}",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "m-tel-warning",
+      "name": "Telegram WARNING/RECOVERY",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1300,
+        40
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "j286Y4Q9S28CG36j",
+          "name": "Telegram bot"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\nconst logLine = JSON.stringify({\n  timestamp: new Date().toISOString(),\n  severity: data.severity,\n  summary: data.summary,\n  should_alert: data.should_alert,\n  alert_reason: data.alert_reason,\n  issues_count: (data.issues || []).length,\n  ram_mb: (data.metrics || {}).ram_available_mb,\n  disk_pct: (data.metrics || {}).disk_root_percent,\n  cpu_load: (data.metrics || {}).cpu_load_1m\n}).replace(/'/g, \"'\\\\''\");\nreturn [{ json: { ...data, _logLine: logLine } }];"
+      },
+      "id": "m-build-log",
+      "name": "Build Log Entry",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1040,
+        140
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "privateKey",
+        "command": "=printf '%s\\n' '{{ $json._logLine }}' >> /data/agencia/logs/s1_health.jsonl",
+        "cwd": "/"
+      },
+      "id": "m-ssh-log",
+      "name": "SSH Write Health Log",
+      "type": "n8n-nodes-base.ssh",
+      "typeVersion": 1,
+      "position": [
+        1300,
+        140
+      ],
+      "credentials": {
+        "sshPrivateKey": {
+          "id": "zwKkkBrd5NcbMFZ3",
+          "name": "aurenix_it_agent SSH"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "path": "s1-telegram",
+        "httpMethod": "POST",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "t-trigger",
+      "name": "S1Telegram",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Zero Trust + Rate Limiter + Command Router\n// Webhook receives Telegram update as body\nconst body = $input.first().json.body || $input.first().json;\nconst msg = body.message || {};\nconst fromId = msg.from ? msg.from.id : 0;\nconst chatId = msg.chat ? msg.chat.id : 0;\nconst text = (msg.text || '').trim();\n\n// Zero Trust: verify numeric ID\nif (fromId !== 501092522) {\n  return [{ json: { type: 'UNAUTHORIZED', fromId, text } }];\n}\n\n// Rate Limiter: max 10 commands per minute\nconst state = $getWorkflowStaticData('global');\nif (!state.cmdTimes) state.cmdTimes = [];\nconst now = Date.now();\nstate.cmdTimes = state.cmdTimes.filter(t => now - t < 60000);\nif (state.cmdTimes.length >= 10) {\n  return [{ json: { type: 'RATE_LIMITED', chatId, text } }];\n}\nstate.cmdTimes.push(now);\n\n// Route command\nif (text.startsWith('/approve')) {\n  const cmd = text.replace('/approve', '').trim();\n  return [{ json: { type: 'approve', command: cmd, chatId, source: 'approve' } }];\n} else if (text === '/status') {\n  return [{ json: { type: 'status', chatId } }];\n} else if (text === '/check') {\n  return [{ json: { type: 'check', chatId } }];\n} else if (text.startsWith('/maintenance')) {\n  const task = text.replace('/maintenance', '').trim();\n  return [{ json: { type: 'maintenance', task, chatId } }];\n} else if (text === '/help') {\n  return [{ json: { type: 'help', chatId } }];\n} else {\n  return [{ json: { type: 'freeform', prompt: text, chatId, source: 'freeform' } }];\n}"
+      },
+      "id": "t-route",
+      "name": "Route Command",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        260,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false,
+                  "leftValue": ""
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.type }}",
+                    "rightValue": "approve",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputLabel": "APPROVE"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false,
+                  "leftValue": ""
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.type }}",
+                    "rightValue": "status",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputLabel": "STATUS"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false,
+                  "leftValue": ""
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.type }}",
+                    "rightValue": "check",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputLabel": "CHECK"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false,
+                  "leftValue": ""
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.type }}",
+                    "rightValue": "maintenance",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputLabel": "MAINTENANCE"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false,
+                  "leftValue": ""
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.type }}",
+                    "rightValue": "help",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputLabel": "HELP"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false,
+                  "leftValue": ""
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.type }}",
+                    "rightValue": "freeform",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputLabel": "FREEFORM"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "id": "t-switch",
+      "name": "Switch Command",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        520,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\nreturn [{ json: { command: input.command, chatId: input.chatId, source: 'approve' } }];"
+      },
+      "id": "t-extract-approve",
+      "name": "Extract Approve Cmd",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        780,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Return cached health status from Static Data\nconst state = $getWorkflowStaticData('global');\nconst cached = state.cachedHealth || { severity: 'UNKNOWN', summary: 'No health check has run yet', timestamp: 'N/A' };\nconst chatId = $input.first().json.chatId || 501092522;\n\nconst issueText = (cached.issues && cached.issues.length > 0)\n  ? cached.issues.map((i, idx) => (idx+1) + '. [' + i.component + '] ' + i.detail).join('\\n')\n  : 'No issues';\n\nconst m = cached.metrics || {};\nconst metricsText = 'RAM: ' + (m.ram_available_mb || '?') + 'MB | Disk: ' + (m.disk_root_percent || '?') + '% | CPU: ' + (m.cpu_load_1m || '?') + ' | Docker: ' + (m.containers_healthy || '?') + '/' + (m.containers_total || '?');\n\nreturn [{ json: { chatId, text: '📊 *S1 VPS Guard — Status (cached)*\\n\\n*Severity:* ' + cached.severity + '\\n*Summary:* ' + cached.summary + '\\n*Last check:* ' + cached.timestamp + '\\n\\n' + issueText + '\\n\\n' + metricsText } }];"
+      },
+      "id": "t-status-cache",
+      "name": "Get Cached Status",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        780,
+        440
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chatId }}",
+        "text": "={{ $json.text }}",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "t-tel-status",
+      "name": "Telegram Status Response",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1040,
+        440
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "j286Y4Q9S28CG36j",
+          "name": "Telegram bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "workflowId": "bdbvv6Vw7NOXVEjV"
+      },
+      "id": "t-exec-check",
+      "name": "Force Health Check",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        780,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\nconst chatId = $('Route Command').first().json.chatId || 501092522;\n\nconst icon = data.severity === 'CRITICAL' ? '🚨' : data.severity === 'WARNING' ? '⚠️' : '✅';\nconst issueText = (data.issues && data.issues.length > 0)\n  ? data.issues.map((i, idx) => (idx+1) + '. [' + i.component + '] ' + i.detail).join('\\n')\n  : 'No issues';\n\nconst m = data.metrics || {};\nconst metricsText = 'RAM: ' + (m.ram_available_mb || '?') + 'MB | Disk: ' + (m.disk_root_percent || '?') + '% | CPU: ' + (m.cpu_load_1m || '?') + ' | Docker: ' + (m.containers_healthy || '?') + '/' + (m.containers_total || '?');\n\nreturn [{ json: { chatId, text: icon + ' *S1 VPS Guard — Check Result*\\n\\n*Severity:* ' + data.severity + '\\n*Summary:* ' + data.summary + '\\n\\n' + issueText + '\\n\\n📊 ' + metricsText } }];"
+      },
+      "id": "t-format-check",
+      "name": "Format Check Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1040,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chatId }}",
+        "text": "={{ $json.text }}",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "t-tel-check",
+      "name": "Telegram Check Response",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1300,
+        560
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "j286Y4Q9S28CG36j",
+          "name": "Telegram bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\nconst presets = { 'docker-prune': 'docker system prune -af --filter \"until=72h\"', 'log-rotate': 'find /var/log -name \"*.log\" -size +100M -exec truncate -s 0 {} \\\\;', 'backup-now': 'bash /usr/local/bin/aurenix-backup-pro.sh', 'ssl-check': 'certbot certificates', 'disk-report': 'du -sh /data/* | sort -rh' };\nconst cmd = presets[input.task];\nif (!cmd) { return [{ json: { command: 'BLOCKED', explanation: 'Unknown preset: ' + input.task + '. Available: ' + Object.keys(presets).join(', '), chatId: input.chatId, source: 'maintenance' } }]; }\nreturn [{ json: { command: cmd, chatId: input.chatId, source: 'maintenance' } }];"
+      },
+      "id": "t-maintenance-resolve",
+      "name": "Resolve Maintenance Preset",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        780,
+        680
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $input.first().json.chatId || 501092522 }}",
+        "text": "🤖 *S1 VPS Guard Ultimate — Commands*\n\n`/status` — Cached health (no SSH call)\n`/check` — Force health check now\n`/approve <cmd>` — Execute validated command\n`/maintenance <preset>` — Run maintenance task\n`/help` — This message\n_Any other text_ — AI interprets and suggests command\n\n*Maintenance presets:*\n`docker-prune` `log-rotate` `backup-now` `ssl-check` `disk-report`",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "t-tel-help",
+      "name": "Telegram Help",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        780,
+        800
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "j286Y4Q9S28CG36j",
+          "name": "Telegram bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.prompt }}",
+        "options": {
+          "systemMessage": "Eres el Agente IT de AURENIX. Solo sugieres comandos de monitoreo y mantenimiento para el VPS.\nREGLAS: 1) SIEMPRE responde en JSON puro: {\"command\": \"...\", \"explanation\": \"...\"} 2) Nunca comandos destructivos (rm -rf, dd, shutdown, etc) 3) Docker containers: n8n, postgresql, qdrant, filebrowser, vaultwarden, coolify 4) n8n API interna: http://10.0.2.3:5678 5) Si no puedes: {\"command\": \"BLOCKED\", \"explanation\": \"razón\"}"
+        }
+      },
+      "id": "t-ai-freeform",
+      "name": "Groq AI (Freeform)",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.4,
+      "position": [
+        780,
+        940
+      ]
+    },
+    {
+      "parameters": {
+        "modelName": "llama3-70b-8192",
+        "options": {
+          "temperature": 0.1
+        }
+      },
+      "id": "t-groq-model",
+      "name": "Groq Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
+      "typeVersion": 1,
+      "position": [
+        780,
+        1140
+      ],
+      "credentials": {
+        "groqApi": {
+          "id": "3xX3Du0zMIty4shQ",
+          "name": "Groq account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "try {\n  let raw = $input.first().json.text || $input.first().json.output || '';\n  if (raw.includes('```json')) raw = raw.replace(/```json\\n?/g, '').replace(/```\\n?/g, '');\n  else if (raw.includes('```')) raw = raw.replace(/```\\n?/g, '');\n  const parsed = JSON.parse(raw.trim());\n  const chatId = $('Route Command').first().json.chatId || 501092522;\n  return [{ json: { command: parsed.command, explanation: parsed.explanation, chatId, source: 'freeform' } }];\n} catch (e) {\n  const chatId = $('Route Command').first().json.chatId || 501092522;\n  return [{ json: { command: 'BLOCKED', explanation: 'AI parse error: ' + e.message, chatId, source: 'freeform' } }];\n}"
+      },
+      "id": "t-parse-ai",
+      "name": "Parse AI Command",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1040,
+        940
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// JS Validator V3 — Unified Security Shield\nconst allowedPrefixes = [\n  'docker ps', 'docker stats', 'docker logs', 'docker restart', 'docker start',\n  'docker stop', 'docker inspect', 'docker system df', 'docker system prune',\n  'docker compose', 'docker top', 'docker exec',\n  'free', 'uptime', 'df', 'top -b', 'vmstat', 'iostat',\n  'ls', 'tail', 'cat', 'head', 'wc', 'du -sh', 'find /data',\n  'ss ', 'ss -', 'netstat', 'ping -c', 'dig ', 'curl http://localhost', 'curl -s http://localhost',\n  'curl http://10.0.2.3', 'curl -s http://10.0.2.3',\n  'systemctl status', 'systemctl restart', 'journalctl',\n  'pg_isready', 'psql -c',\n  'fail2ban-client status',\n  'python scripts/', 'python3 scripts/',\n  'bash /usr/local/bin/aurenix-backup-pro.sh',\n  'certbot certificates', 'certbot renew',\n  'apt list --upgradable',\n  'test ', 'echo ', 'date', 'whoami', 'id',\n  'htop', 'iotop'\n];\n\nconst blockedKeywords = [\n  'rm -rf', 'rm -r /', 'rm /', 'dd if=', 'mkfs', '> /dev', 'shutdown', 'reboot', 'halt',\n  'passwd', 'chmod 777', 'chmod -R 777', 'chown -R root',\n  'DROP ', 'DELETE FROM', 'TRUNCATE', 'ALTER TABLE',\n  'curl | bash', 'wget | bash', 'curl | sh', 'wget | sh',\n  'iptables -F', 'ufw disable', 'ufw reset',\n  '&& rm', '; rm', '| rm', '| bash', '| sh',\n  'eval ', 'exec ', 'python -c', 'python3 -c', 'node -e',\n  'ssh ', 'scp ', 'rsync', 'nc -l', 'ncat', 'socat',\n  'base64 -d | bash', 'base64 -d | sh',\n  '/etc/shadow', '/etc/passwd', '/etc/sudoers',\n  'crontab -r', 'crontab -e',\n  'kill -9 1', 'killall'\n];\n\nconst input = $input.first().json;\nconst cmd = (input.command || '').trim();\nconst chatId = input.chatId || 501092522;\nconst source = input.source || 'unknown';\n\nif (!cmd || cmd === 'auto' || cmd === 'BLOCKED') {\n  return [{ json: { safe: false, command: cmd, reason: input.explanation || 'Empty or blocked command', chatId, source } }];\n}\n\nconst isAllowed = allowedPrefixes.some(p => cmd.startsWith(p));\nconst forbidden = blockedKeywords.find(k => cmd.toLowerCase().includes(k.toLowerCase()));\n\nif (isAllowed && !forbidden) {\n  return [{ json: { safe: true, command: cmd, chatId, source } }];\n} else {\n  const reason = forbidden ? 'Blocked keyword: ' + forbidden : 'Not in allowed prefixes';\n  return [{ json: { safe: false, command: cmd, reason, chatId, source } }];\n}"
+      },
+      "id": "t-validator",
+      "name": "JS Validator V3",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1300,
+        700
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": ""
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.safe }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "t-if-safe",
+      "name": "If Safe?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1560,
+        700
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "privateKey",
+        "command": "={{ $json.command }}",
+        "cwd": "/"
+      },
+      "id": "t-ssh-exec",
+      "name": "SSH Execute Command",
+      "type": "n8n-nodes-base.ssh",
+      "typeVersion": 1,
+      "position": [
+        1820,
+        640
+      ],
+      "credentials": {
+        "sshPrivateKey": {
+          "id": "zwKkkBrd5NcbMFZ3",
+          "name": "aurenix_it_agent SSH"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('JS Validator V3').first().json.chatId || 501092522 }}",
+        "text": "=✅ *S1 Ejecutado* [{{ $('JS Validator V3').first().json.source }}]\n\n*Cmd:* `{{ $('JS Validator V3').first().json.command }}`\n\n```\n{{ ($json.stdout || 'Sin output').substring(0, 3500) }}\n```\n{{ $json.stderr ? '⚠️ ' + $json.stderr.substring(0, 500) : '' }}",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "t-tel-result",
+      "name": "Telegram Result",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        2080,
+        640
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "j286Y4Q9S28CG36j",
+          "name": "Telegram bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chatId || 501092522 }}",
+        "text": "=🛑 *S1 BLOCKED* [{{ $json.source }}]\n\n*Cmd:* `{{ $json.command }}`\n*Reason:* {{ $json.reason }}",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "t-tel-blocked",
+      "name": "Telegram Blocked",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1820,
+        800
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "j286Y4Q9S28CG36j",
+          "name": "Telegram bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chatId || 501092522 }}",
+        "text": "=⏱️ Rate limited. Max 10 commands/minute.",
+        "additionalFields": {}
+      },
+      "id": "t-tel-ratelimit",
+      "name": "Telegram Rate Limited",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        780,
+        1060
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "j286Y4Q9S28CG36j",
+          "name": "Telegram bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "path": "s1-health-check",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "w-webhook",
+      "name": "S1HealthCheck",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        1400
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": "bdbvv6Vw7NOXVEjV"
+      },
+      "id": "w-exec-health",
+      "name": "Webhook Health Check",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        260,
+        1400
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($input.first().json) }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "w-respond",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        520,
+        1400
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "e-trigger",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        1700
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "501092522",
+        "text": "=💀 *S1 VPS GUARD ULTIMATE — INTERNAL ERROR*\n\n*Error:* {{ $json.execution?.error?.message || 'Unknown' }}\n*Node:* {{ $json.execution?.lastNodeExecuted || 'N/A' }}\n\nCheck n8n executions for details.",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "e-tel-error",
+      "name": "Telegram Internal Error",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        260,
+        1700
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "j286Y4Q9S28CG36j",
+          "name": "Telegram bot"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Schedule (30 min)": {
+      "main": [
+        [
+          {
+            "node": "Execute Health Collector",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Health Collector": {
+      "main": [
+        [
+          {
+            "node": "Alert Dedup + Trends",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Alert Dedup + Trends": {
+      "main": [
+        [
+          {
+            "node": "Should Alert?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Should Alert?": {
+      "main": [
+        [
+          {
+            "node": "Switch Severity",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Log Entry",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch Severity": {
+      "main": [
+        [
+          {
+            "node": "Telegram CRITICAL",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Telegram WARNING/RECOVERY",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Telegram WARNING/RECOVERY",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram CRITICAL": {
+      "main": [
+        [
+          {
+            "node": "Build Log Entry",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram WARNING/RECOVERY": {
+      "main": [
+        [
+          {
+            "node": "Build Log Entry",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Log Entry": {
+      "main": [
+        [
+          {
+            "node": "SSH Write Health Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "S1Telegram": {
+      "main": [
+        [
+          {
+            "node": "Route Command",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route Command": {
+      "main": [
+        [
+          {
+            "node": "Switch Command",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch Command": {
+      "main": [
+        [
+          {
+            "node": "Extract Approve Cmd",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Get Cached Status",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Force Health Check",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Resolve Maintenance Preset",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Telegram Help",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Groq AI (Freeform)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Telegram Rate Limited",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Approve Cmd": {
+      "main": [
+        [
+          {
+            "node": "JS Validator V3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Cached Status": {
+      "main": [
+        [
+          {
+            "node": "Telegram Status Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Force Health Check": {
+      "main": [
+        [
+          {
+            "node": "Format Check Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Check Result": {
+      "main": [
+        [
+          {
+            "node": "Telegram Check Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolve Maintenance Preset": {
+      "main": [
+        [
+          {
+            "node": "JS Validator V3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq AI (Freeform)": {
+      "main": [
+        [
+          {
+            "node": "Parse AI Command",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Groq AI (Freeform)",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse AI Command": {
+      "main": [
+        [
+          {
+            "node": "JS Validator V3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "JS Validator V3": {
+      "main": [
+        [
+          {
+            "node": "If Safe?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If Safe?": {
+      "main": [
+        [
+          {
+            "node": "SSH Execute Command",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Telegram Blocked",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SSH Execute Command": {
+      "main": [
+        [
+          {
+            "node": "Telegram Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "S1HealthCheck": {
+      "main": [
+        [
+          {
+            "node": "Webhook Health Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Health Check": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Telegram Internal Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": ""
+  }
+}

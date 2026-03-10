@@ -1,0 +1,515 @@
+{
+  "name": "S5 ULTIMATE V2: The Oracle (12 Feeds + Multi-Score + Blockchain + CyberSec)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 6 * * *"
+            }
+          ]
+        }
+      },
+      "id": "cron-01",
+      "name": "CronDaily",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [0, 200]
+    },
+    {
+      "parameters": { "url": "https://hnrss.org/newest?q=AI+agents" },
+      "id": "rss-hn-01",
+      "name": "RSSHackerNews",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1,
+      "position": [240, 0],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": { "url": "https://github.com/n8n-io/n8n/releases.atom" },
+      "id": "rss-n8n-01",
+      "name": "RSSN8nReleases",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1,
+      "position": [240, 140],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": { "url": "https://www.reddit.com/r/LocalLLaMA/new/.rss" },
+      "id": "rss-llama-01",
+      "name": "RSSLocalLLaMA",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1,
+      "position": [240, 280],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": { "url": "https://www.anthropic.com/feed.xml" },
+      "id": "rss-anthropic-01",
+      "name": "RSSAnthropicBlog",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1,
+      "position": [240, 420],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": { "url": "https://openai.com/blog/rss.xml" },
+      "id": "rss-openai-01",
+      "name": "RSSOpenAIBlog",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1,
+      "position": [240, 560],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": { "url": "https://blog.google/technology/ai/rss/" },
+      "id": "rss-google-01",
+      "name": "RSSGoogleAIBlog",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1,
+      "position": [240, 700],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": { "url": "https://www.coindesk.com/arc/outboundfeeds/rss/" },
+      "id": "rss-coindesk-01",
+      "name": "RSSCoinDesk",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1,
+      "position": [240, 840],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": { "url": "https://feeds.feedburner.com/TheHackersNews" },
+      "id": "rss-hackernews-01",
+      "name": "RSSTheHackerNews",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1,
+      "position": [240, 980],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": { "url": "https://techcrunch.com/category/artificial-intelligence/feed/" },
+      "id": "rss-techcrunchai-01",
+      "name": "RSSTechCrunchAI",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1,
+      "position": [240, 1120],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": { "url": "https://krebsonsecurity.com/feed/" },
+      "id": "rss-krebssecurity-01",
+      "name": "RSSKrebsSecurity",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1,
+      "position": [240, 1260],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": { "url": "https://feeds.arstechnica.com/arstechnica/technology-lab" },
+      "id": "rss-arstechnica-01",
+      "name": "RSSArsTechnica",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1,
+      "position": [240, 1400],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": { "url": "https://blog.ethereum.org/feed.xml" },
+      "id": "rss-ethereum-01",
+      "name": "RSSEthereumBlog",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1,
+      "position": [240, 1540],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Collect ALL items from all 12 RSS feeds, dedup by title, limit 50\nconst items = $input.all();\nconst seen = new Set();\nconst unique = [];\n\nfor (const item of items) {\n  const title = (item.json.title || '').trim().toLowerCase();\n  if (!title || seen.has(title)) continue;\n  seen.add(title);\n  unique.push(item);\n}\n\nif (unique.length === 0) {\n  return [{ json: { _empty: true, title: 'No items from any feed', link: '', contentSnippet: '' } }];\n}\n\nreturn unique.slice(0, 50);"
+      },
+      "id": "dedup-01",
+      "name": "DedupLimit30",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [520, 280],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": false, "leftValue": "" },
+          "conditions": [
+            {
+              "leftValue": "={{ $json._empty }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "notEquals" }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "if-has-items-01",
+      "name": "IfHasItems",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [760, 280]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "Evalua esta noticia para la agencia AURENIX (B2B, n8n, LLMs, RAG, agentes autonomos):\n\nTitulo: {{ $json.title }}\nExtracto: {{ $json.contentSnippet || $json.content || 'Sin extracto' }}\nFuente: {{ $json.creator || $json.link || 'Desconocida' }}",
+        "options": {
+          "systemMessage": "Eres 'The Gatekeeper' de AURENIX. Evalua noticias para una agencia B2B de IA/automatizacion que tambien monitorea crypto/blockchain y ciberseguridad.\n\nSCORING (responde en JSON puro):\n{\"ai_relevance\": 0-10, \"investment_relevance\": 0-10, \"security_relevance\": 0-10, \"overall_score\": 0-10, \"relevant\": true/false, \"reason\": \"breve explicacion\", \"tags\": [\"tag1\", \"tag2\"], \"category\": \"ai\" | \"crypto\" | \"security\" | \"tech\" | \"business\"}\n\nai_relevance: Aplicable a agencia B2B de IA/automatizacion?\ninvestment_relevance: Relevante para inversiones crypto/finanzas?\nsecurity_relevance: Relevante para ciberseguridad/hardening?\noverall_score: Media ponderada (ai 50%, investment 25%, security 25%)\nrelevant: true si overall_score >= 6\n\nRESPONDE SOLO en JSON puro (sin markdown, sin backticks)."
+        }
+      },
+      "id": "triage-01",
+      "name": "TriageGatekeeper",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.4,
+      "position": [1000, 200],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "modelName": "llama3-8b-8192",
+        "options": { "temperature": 0.1 }
+      },
+      "id": "groq-8b-01",
+      "name": "GroqLlama3-8B",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
+      "typeVersion": 1,
+      "position": [1000, 420],
+      "credentials": {
+        "groqApi": { "id": "3xX3Du0zMIty4shQ", "name": "Groq account" }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse triage response con fallback (multi-score V2)\ntry {\n  let raw = $input.first().json.text;\n  if (raw.includes('```json')) raw = raw.replace(/```json\\n?/g, '').replace(/```\\n?/g, '');\n  else if (raw.includes('```')) raw = raw.replace(/```\\n?/g, '');\n  \n  const evaluation = JSON.parse(raw.trim());\n  const original = $input.first().json;\n  return [{ json: { \n    title: original.title || 'Sin titulo',\n    link: original.link || '',\n    contentSnippet: original.contentSnippet || '',\n    ai_relevance: evaluation.ai_relevance || 0,\n    investment_relevance: evaluation.investment_relevance || 0,\n    security_relevance: evaluation.security_relevance || 0,\n    overall_score: evaluation.overall_score || 0,\n    score: evaluation.overall_score || 0,\n    relevant: evaluation.relevant || false, \n    reason: evaluation.reason || 'Sin razon',\n    tags: evaluation.tags || [],\n    category: evaluation.category || 'tech'\n  }}];\n} catch (e) {\n  return [{ json: { \n    title: $input.first().json.title || 'Sin titulo',\n    link: $input.first().json.link || '',\n    ai_relevance: 0, investment_relevance: 0, security_relevance: 0,\n    overall_score: 0, score: 0, \n    relevant: false, \n    reason: 'Error parsing triage: ' + e.message,\n    tags: [], category: 'tech'\n  }}];\n}"
+      },
+      "id": "parse-triage-01",
+      "name": "ParseTriageResult",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1240, 200],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": false, "leftValue": "" },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.relevant }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "equals" }
+            },
+            {
+              "leftValue": "={{ $json.overall_score }}",
+              "rightValue": 6,
+              "operator": { "type": "number", "operation": "gte" }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "if-relevant-01",
+      "name": "IfScoreGte7",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1480, 200]
+    },
+    {
+      "parameters": {
+        "url": "=https://r.jina.ai/{{ $json.link }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "jina-01",
+      "name": "JinaReaderDeepExtract",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1720, 100],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Fallback si Jina fallo: usar snippet original\nconst jinaData = $input.first().json;\nconst triageData = $('ParseTriageResult').first().json;\n\nconst content = jinaData.data || jinaData.content || jinaData.text || triageData.contentSnippet || 'Contenido no disponible';\n\nreturn [{ json: { \n  title: triageData.title,\n  content: typeof content === 'string' ? content.substring(0, 8000) : JSON.stringify(content).substring(0, 8000),\n  link: triageData.link,\n  score: triageData.overall_score || triageData.score,\n  ai_relevance: triageData.ai_relevance || 0,\n  investment_relevance: triageData.investment_relevance || 0,\n  security_relevance: triageData.security_relevance || 0,\n  overall_score: triageData.overall_score || 0,\n  category: triageData.category || 'tech',\n  tags: triageData.tags\n}}];"
+      },
+      "id": "jina-fallback-01",
+      "name": "JinaFallbackHandler",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1960, 100],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "Analiza este articulo completo para AURENIX:\n\nTitulo: {{ $json.title }}\nContenido: {{ $json.content }}",
+        "options": {
+          "systemMessage": "Eres 'The Scholar', analista tecnico senior de AURENIX. Procesa articulos de IA y extrae insights accionables.\n\nFORMATO DE RESPUESTA (Markdown):\n\n## TL;DR\n[Problema que resuelve / Solucion propuesta — 2 lineas max]\n\n## Oportunidad B2B\n[Como puede AURENIX usar esto para clientes o internamente — 3 lineas max]\n\n## Complejidad Tecnica\n[Baja/Media/Alta + stack necesario — 1 linea]\n\n## Tags\n[Lista de tags separados por coma]\n\nSe conciso y accionable. No rellenes."
+        }
+      },
+      "id": "deep-summary-01",
+      "name": "DeepSummaryScholar",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.4,
+      "position": [2200, 100],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "modelName": "llama3-70b-8192",
+        "options": { "temperature": 0.2 }
+      },
+      "id": "groq-70b-01",
+      "name": "GroqLlama3-70B",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
+      "typeVersion": 1,
+      "position": [2200, 320],
+      "credentials": {
+        "groqApi": { "id": "3xX3Du0zMIty4shQ", "name": "Groq account" }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "501092522",
+        "text": "=\ud83d\udd2e *S5 THE ORACLE \u2014 Intel Ejecutiva*\n\n*Noticia:* {{ $('JinaFallbackHandler').first().json.title }}\n*Categoria:* {{ $('ParseTriageResult').first().json.category || 'tech' }}\n*Overall:* {{ $('ParseTriageResult').first().json.overall_score }}/10 | *AI:* {{ $('ParseTriageResult').first().json.ai_relevance }}/10 | *Invest:* {{ $('ParseTriageResult').first().json.investment_relevance }}/10 | *Sec:* {{ $('ParseTriageResult').first().json.security_relevance }}/10\n*Tags:* {{ ($('JinaFallbackHandler').first().json.tags || []).join(', ') }}\n\n{{ $json.text }}\n\n[Leer original]({{ $('JinaFallbackHandler').first().json.link }})",
+        "additionalFields": { "parse_mode": "Markdown" }
+      },
+      "id": "tel-oracle-01",
+      "name": "TelegramIntelAlert",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [2440, 0],
+      "credentials": {
+        "telegramApi": { "id": "j286Y4Q9S28CG36j", "name": "Telegram bot" }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "fileName": "=/data/agencia/backups/oracle_intel.jsonl",
+        "fileContent": "={{ JSON.stringify({ timestamp: new Date().toISOString(), title: $('JinaFallbackHandler').first().json.title, score: $('JinaFallbackHandler').first().json.score, link: $('JinaFallbackHandler').first().json.link, tags: $('JinaFallbackHandler').first().json.tags, summary: $json.text ? $json.text.substring(0, 1000) : '' }) }}\n"
+      },
+      "id": "log-intel-01",
+      "name": "LogIntelJSONL",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [2440, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Daily Summary — fires ONCE after all items processed\n// Count stats from this execution\nconst staticData = $getWorkflowStaticData('global');\nconst today = new Date().toISOString().split('T')[0];\n\n// Track daily stats\nif (!staticData.dailyStats || staticData.dailyStats.date !== today) {\n  staticData.dailyStats = { date: today, total: 0, relevant: 0 };\n}\nstaticData.dailyStats.total++;\n\nconst isRelevant = $json.relevant || false;\nif (!isRelevant) {\n  // Non-relevant item — increment counter but don't send summary yet\n  // Summary will be sent by the cron schedule at end of pipeline\n}\n\nreturn [{ json: { \n  total: staticData.dailyStats.total, \n  relevant: staticData.dailyStats.relevant,\n  date: today\n}}];"
+      },
+      "id": "stats-counter-01",
+      "name": "StatsCounter",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1720, 340]
+    },
+    {
+      "parameters": {
+        "chatId": "501092522",
+        "text": "=\ud83d\udcca *S5 THE ORACLE \u2014 Resumen Diario*\n\nFeeds procesados: 12\nArticulos evaluados: {{ $json.total || 'N/A' }}\n\n_Pipeline completado a las {{ new Date().toLocaleTimeString('es-ES') }}_",
+        "additionalFields": { "parse_mode": "Markdown" }
+      },
+      "id": "tel-summary-01",
+      "name": "TelegramDailySummary",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1960, 340],
+      "credentials": {
+        "telegramApi": { "id": "j286Y4Q9S28CG36j", "name": "Telegram bot" }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {},
+      "id": "err-trigger-s5-01",
+      "name": "ErrorTriggerS5Internal",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [0, 900]
+    },
+    {
+      "parameters": {
+        "chatId": "501092522",
+        "text": "=\ud83d\udc80 *S5 THE ORACLE \u2014 FALLO INTERNO*\n\n*Error:* {{ $json.execution?.error?.message || 'Error desconocido' }}\n*Nodo:* {{ $json.execution?.lastNodeExecuted || 'N/A' }}",
+        "additionalFields": { "parse_mode": "Markdown" }
+      },
+      "id": "tel-internal-err-01",
+      "name": "TelegramS5InternalError",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [240, 900],
+      "credentials": {
+        "telegramApi": { "id": "j286Y4Q9S28CG36j", "name": "Telegram bot" }
+      }
+    }
+  ],
+  "connections": {
+    "CronDaily": {
+      "main": [[
+        { "node": "RSSHackerNews", "type": "main", "index": 0 },
+        { "node": "RSSN8nReleases", "type": "main", "index": 0 },
+        { "node": "RSSLocalLLaMA", "type": "main", "index": 0 },
+        { "node": "RSSAnthropicBlog", "type": "main", "index": 0 },
+        { "node": "RSSOpenAIBlog", "type": "main", "index": 0 },
+        { "node": "RSSGoogleAIBlog", "type": "main", "index": 0 },
+        { "node": "RSSCoinDesk", "type": "main", "index": 0 },
+        { "node": "RSSTheHackerNews", "type": "main", "index": 0 },
+        { "node": "RSSTechCrunchAI", "type": "main", "index": 0 },
+        { "node": "RSSKrebsSecurity", "type": "main", "index": 0 },
+        { "node": "RSSArsTechnica", "type": "main", "index": 0 },
+        { "node": "RSSEthereumBlog", "type": "main", "index": 0 }
+      ]]
+    },
+    "RSSHackerNews": {
+      "main": [
+        [{ "node": "DedupLimit30", "type": "main", "index": 0 }],
+        [{ "node": "DedupLimit30", "type": "main", "index": 0 }]
+      ]
+    },
+    "RSSN8nReleases": {
+      "main": [
+        [{ "node": "DedupLimit30", "type": "main", "index": 0 }],
+        [{ "node": "DedupLimit30", "type": "main", "index": 0 }]
+      ]
+    },
+    "RSSLocalLLaMA": {
+      "main": [
+        [{ "node": "DedupLimit30", "type": "main", "index": 0 }],
+        [{ "node": "DedupLimit30", "type": "main", "index": 0 }]
+      ]
+    },
+    "RSSAnthropicBlog": {
+      "main": [
+        [{ "node": "DedupLimit30", "type": "main", "index": 0 }],
+        [{ "node": "DedupLimit30", "type": "main", "index": 0 }]
+      ]
+    },
+    "RSSOpenAIBlog": {
+      "main": [
+        [{ "node": "DedupLimit30", "type": "main", "index": 0 }],
+        [{ "node": "DedupLimit30", "type": "main", "index": 0 }]
+      ]
+    },
+    "RSSGoogleAIBlog": {
+      "main": [
+        [{ "node": "DedupLimit30", "type": "main", "index": 0 }],
+        [{ "node": "DedupLimit30", "type": "main", "index": 0 }]
+      ]
+    },
+    "RSSCoinDesk": {
+      "main": [
+        [{ "node": "DedupLimit30", "type": "main", "index": 0 }],
+        [{ "node": "DedupLimit30", "type": "main", "index": 0 }]
+      ]
+    },
+    "RSSTheHackerNews": {
+      "main": [
+        [{ "node": "DedupLimit30", "type": "main", "index": 0 }],
+        [{ "node": "DedupLimit30", "type": "main", "index": 0 }]
+      ]
+    },
+    "RSSTechCrunchAI": {
+      "main": [
+        [{ "node": "DedupLimit30", "type": "main", "index": 0 }],
+        [{ "node": "DedupLimit30", "type": "main", "index": 0 }]
+      ]
+    },
+    "RSSKrebsSecurity": {
+      "main": [
+        [{ "node": "DedupLimit30", "type": "main", "index": 0 }],
+        [{ "node": "DedupLimit30", "type": "main", "index": 0 }]
+      ]
+    },
+    "RSSArsTechnica": {
+      "main": [
+        [{ "node": "DedupLimit30", "type": "main", "index": 0 }],
+        [{ "node": "DedupLimit30", "type": "main", "index": 0 }]
+      ]
+    },
+    "RSSEthereumBlog": {
+      "main": [
+        [{ "node": "DedupLimit30", "type": "main", "index": 0 }],
+        [{ "node": "DedupLimit30", "type": "main", "index": 0 }]
+      ]
+    },
+    "DedupLimit30": {
+      "main": [
+        [{ "node": "IfHasItems", "type": "main", "index": 0 }],
+        [{ "node": "IfHasItems", "type": "main", "index": 0 }]
+      ]
+    },
+    "IfHasItems": {
+      "main": [
+        [{ "node": "TriageGatekeeper", "type": "main", "index": 0 }],
+        [{ "node": "TelegramDailySummary", "type": "main", "index": 0 }]
+      ]
+    },
+    "GroqLlama3-8B": {
+      "ai_languageModel": [[{ "node": "TriageGatekeeper", "type": "ai_languageModel", "index": 0 }]]
+    },
+    "TriageGatekeeper": {
+      "main": [
+        [{ "node": "ParseTriageResult", "type": "main", "index": 0 }],
+        [{ "node": "ParseTriageResult", "type": "main", "index": 0 }]
+      ]
+    },
+    "ParseTriageResult": {
+      "main": [
+        [{ "node": "IfScoreGte7", "type": "main", "index": 0 }],
+        [{ "node": "IfScoreGte7", "type": "main", "index": 0 }]
+      ]
+    },
+    "IfScoreGte7": {
+      "main": [
+        [{ "node": "JinaReaderDeepExtract", "type": "main", "index": 0 }],
+        [{ "node": "StatsCounter", "type": "main", "index": 0 }]
+      ]
+    },
+    "JinaReaderDeepExtract": {
+      "main": [
+        [{ "node": "JinaFallbackHandler", "type": "main", "index": 0 }],
+        [{ "node": "JinaFallbackHandler", "type": "main", "index": 0 }]
+      ]
+    },
+    "JinaFallbackHandler": {
+      "main": [
+        [{ "node": "DeepSummaryScholar", "type": "main", "index": 0 }],
+        [{ "node": "DeepSummaryScholar", "type": "main", "index": 0 }]
+      ]
+    },
+    "GroqLlama3-70B": {
+      "ai_languageModel": [[{ "node": "DeepSummaryScholar", "type": "ai_languageModel", "index": 0 }]]
+    },
+    "DeepSummaryScholar": {
+      "main": [
+        [
+          { "node": "TelegramIntelAlert", "type": "main", "index": 0 },
+          { "node": "LogIntelJSONL", "type": "main", "index": 0 }
+        ],
+        [{ "node": "LogIntelJSONL", "type": "main", "index": 0 }]
+      ]
+    },
+    "StatsCounter": {
+      "main": [[{ "node": "TelegramDailySummary", "type": "main", "index": 0 }]]
+    },
+    "ErrorTriggerS5Internal": {
+      "main": [[{ "node": "TelegramS5InternalError", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  }
+}
