@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Editar' if client else 'Nuevo' }} Cliente{% endblock %}
+{% block page_title %}{{ 'Editar' if client else 'Nuevo' }} Cliente{% endblock %}
+
+{% block content %}
+<div class="max-w-xl">
+  <div class="card p-6">
+    {% if error %}
+    <div class="mb-4 px-3 py-2 rounded-lg bg-red-900/30 border border-red-800/50 text-sm text-red-400">
+      {{ error }}
+    </div>
+    {% endif %}
+
+    <form method="POST" action="/clients/new" class="space-y-4">
+      <div>
+        <label class="block text-xs font-medium text-[#8b949e] mb-1.5">Nombre de la empresa *</label>
+        <input type="text" name="name" required placeholder="Empresa SL" value="{{ client.name if client else '' }}">
+      </div>
+
+      <div class="grid grid-cols-2 gap-4">
+        <div>
+          <label class="block text-xs font-medium text-[#8b949e] mb-1.5">Plan</label>
+          <select name="plan">
+            {% for p in ['basic', 'pro', 'enterprise'] %}
+            <option value="{{ p }}" {% if client and client.plan == p %}selected{% endif %}>{{ p }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-[#8b949e] mb-1.5">Fecha de inicio</label>
+          <input type="date" name="started_at" value="{{ client.started_at if client else '' }}">
+        </div>
+      </div>
+
+      <div class="grid grid-cols-2 gap-4">
+        <div>
+          <label class="block text-xs font-medium text-[#8b949e] mb-1.5">MRR (€/mes)</label>
+          <input type="number" name="mrr_eur" step="0.01" min="0" placeholder="0" value="{{ client.mrr_eur if client else '0' }}">
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-[#8b949e] mb-1.5">Coste VPS (€/mes)</label>
+          <input type="number" name="vps_cost_eur" step="0.01" min="0" placeholder="0" value="{{ client.vps_cost_eur if client else '0' }}">
+        </div>
+      </div>
+
+      <div>
+        <label class="block text-xs font-medium text-[#8b949e] mb-1.5">Nombre de contacto</label>
+        <input type="text" name="contact_name" placeholder="Juan García" value="{{ client.contact_name if client else '' }}">
+      </div>
+
+      <div>
+        <label class="block text-xs font-medium text-[#8b949e] mb-1.5">Email de contacto</label>
+        <input type="email" name="contact_email" placeholder="juan@empresa.com" value="{{ client.contact_email if client else '' }}">
+      </div>
+
+      <div>
+        <label class="block text-xs font-medium text-[#8b949e] mb-1.5">Notas internas</label>
+        <textarea name="notes" rows="3" placeholder="Observaciones sobre el cliente...">{{ client.notes if client else '' }}</textarea>
+      </div>
+
+      <div class="flex items-center gap-3 pt-2">
+        <button type="submit"
+          class="px-4 py-2 rounded-lg text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 transition-colors">
+          {{ 'Guardar cambios' if client else 'Crear cliente' }}
+        </button>
+        <a href="/" class="text-sm text-[#8b949e] hover:text-[#e6edf3] transition-colors">Cancelar</a>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

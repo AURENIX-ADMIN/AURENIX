@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Clientes{% endblock %}
+{% block page_title %}Clientes{% endblock %}
+
+{% block content %}
+<div class="flex items-center justify-between mb-5">
+  <p class="text-sm text-[#8b949e]">{{ clients | length }} cliente{% if clients | length != 1 %}s{% endif %} activos</p>
+  <a href="/clients/new" class="px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 transition-colors">
+    + Nuevo cliente
+  </a>
+</div>
+
+<div class="card divide-y divide-[#30363d]">
+  {% if clients %}
+    {% for client in clients %}
+    <a href="/clients/{{ client.id }}" class="flex items-center justify-between px-5 py-4 hover:bg-[#21262d]/40 transition-colors block group">
+      <div>
+        <p class="text-sm font-medium text-[#e6edf3] group-hover:text-blue-400 transition-colors">{{ client.name }}</p>
+        <p class="text-xs text-[#8b949e] mt-0.5">
+          {{ client.plan }}
+          {% if client.contact_name %} · {{ client.contact_name }}{% endif %}
+          {% if client.started_at %} · desde {{ client.started_at }}{% endif %}
+        </p>
+      </div>
+      <div class="text-right">
+        <p class="text-sm font-mono text-blue-400">€{{ "%.0f"|format(client.mrr_eur) }}/mes</p>
+        <p class="text-xs text-[#8b949e]">{{ client.systems | length }} sistema{% if client.systems | length != 1 %}s{% endif %}</p>
+      </div>
+    </a>
+    {% endfor %}
+  {% else %}
+    <div class="px-5 py-12 text-center">
+      <p class="text-sm text-[#8b949e] mb-3">No hay clientes registrados todavía.</p>
+      <a href="/clients/new" class="text-sm text-blue-400 hover:text-blue-300">Crear primer cliente →</a>
+    </div>
+  {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,205 @@
+{% extends "base.html" %}
+{% block title %}Costes & Márgenes{% endblock %}
+{% block page_title %}Costes & Márgenes{% endblock %}
+
+{% block content %}
+
+{# ── Month selector ───────────────────────────────────────── #}
+<div class="flex items-center justify-between mb-5">
+  <p class="text-sm text-[#8b949e]">{{ display_month }}</p>
+  <form method="GET" action="/costs" class="flex items-center gap-2">
+    <input type="month" name="month" value="{{ selected_month }}"
+      class="text-xs bg-[#161b22] border border-[#30363d] text-[#e6edf3] rounded px-2 py-1 outline-none">
+    <button type="submit" class="text-xs px-3 py-1 rounded border border-[#30363d] text-[#8b949e] hover:text-[#e6edf3] transition-colors">
+      Ver
+    </button>
+  </form>
+</div>
+
+{# ── Global stats ─────────────────────────────────────────── #}
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+  <div class="card px-4 py-3">
+    <p class="text-xs text-[#8b949e] mb-1">MRR total</p>
+    <p class="text-2xl font-bold text-blue-400 font-mono">€{{ "%.0f"|format(totals.mrr) }}</p>
+  </div>
+  <div class="card px-4 py-3">
+    <p class="text-xs text-[#8b949e] mb-1">Coste total</p>
+    <p class="text-2xl font-bold text-orange-400 font-mono">€{{ "%.2f"|format(totals.cost) }}</p>
+  </div>
+  <div class="card px-4 py-3">
+    <p class="text-xs text-[#8b949e] mb-1">Margen neto</p>
+    <p class="text-2xl font-bold {% if totals.margin >= 0 %}text-green-400{% else %}text-red-400{% endif %} font-mono">
+      €{{ "%.0f"|format(totals.margin) }}
+    </p>
+  </div>
+  <div class="card px-4 py-3">
+    <p class="text-xs text-[#8b949e] mb-1">Margen %</p>
+    <p class="text-2xl font-bold {% if totals.margin_pct >= 60 %}text-green-400{% elif totals.margin_pct >= 40 %}text-yellow-400{% else %}text-red-400{% endif %} font-mono">
+      {{ "%.1f"|format(totals.margin_pct) }}%
+    </p>
+  </div>
+</div>
+
+<div class="grid grid-cols-1 xl:grid-cols-3 gap-5">
+
+  {# ── Per-client summary ───────────────────────────────────── #}
+  <div class="xl:col-span-2 space-y-5">
+
+    <div>
+      <h2 class="text-sm font-semibold text-[#e6edf3] mb-3">Por cliente</h2>
+      <div class="card overflow-hidden">
+        <table class="w-full text-xs">
+          <thead>
+            <tr class="border-b border-[#30363d]">
+              <th class="px-4 py-3 text-left text-[#8b949e] font-medium">Cliente</th>
+              <th class="px-4 py-3 text-right text-[#8b949e] font-medium">MRR</th>
+              <th class="px-4 py-3 text-right text-[#8b949e] font-medium">Claude</th>
+              <th class="px-4 py-3 text-right text-[#8b949e] font-medium">Total COGS</th>
+              <th class="px-4 py-3 text-right text-[#8b949e] font-medium">Margen</th>
+              <th class="px-4 py-3 text-right text-[#8b949e] font-medium">%</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-[#30363d]">
+            {% if client_summary %}
+              {% for c in client_summary %}
+              <tr class="hover:bg-[#21262d]/40">
+                <td class="px-4 py-3 font-medium text-[#e6edf3]">{{ c.client_name }}</td>
+                <td class="px-4 py-3 text-right font-mono text-blue-400">€{{ "%.0f"|format(c.mrr_eur) }}</td>
+                <td class="px-4 py-3 text-right font-mono text-orange-400">€{{ "%.4f"|format(c.claude_total_eur) }}</td>
+                <td class="px-4 py-3 text-right font-mono text-[#8b949e]">€{{ "%.2f"|format(c.total_cost_eur) }}</td>
+                <td class="px-4 py-3 text-right font-mono {% if c.margin_eur >= 0 %}text-green-400{% else %}text-red-400{% endif %}">
+                  €{{ "%.0f"|format(c.margin_eur) }}
+                </td>
+                <td class="px-4 py-3 text-right">
+                  <span class="font-mono text-xs px-2 py-0.5 rounded-full
+                    {% if c.margin_pct >= 60 %}bg-green-900/40 text-green-400
+                    {% elif c.margin_pct >= 40 %}bg-yellow-900/40 text-yellow-400
+                    {% else %}bg-red-900/40 text-red-400{% endif %}">
+                    {{ "%.1f"|format(c.margin_pct) }}%
+                  </span>
+                </td>
+              </tr>
+              {% endfor %}
+            {% else %}
+              <tr>
+                <td colspan="6" class="px-4 py-8 text-center text-[#8b949e]">
+                  Sin datos de métricas todavía — los costes se calculan a medida que el puller recoge datos.
+                </td>
+              </tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    {# ── Per-system detail ────────────────────────────────────── #}
+    <div>
+      <h2 class="text-sm font-semibold text-[#e6edf3] mb-3">Desglose por sistema</h2>
+      <div class="card overflow-hidden">
+        <table class="w-full text-xs">
+          <thead>
+            <tr class="border-b border-[#30363d]">
+              <th class="px-4 py-3 text-left text-[#8b949e] font-medium">Sistema</th>
+              <th class="px-4 py-3 text-left text-[#8b949e] font-medium">Cliente</th>
+              <th class="px-4 py-3 text-right text-[#8b949e] font-medium">Haiku tokens</th>
+              <th class="px-4 py-3 text-right text-[#8b949e] font-medium">Sonnet tokens</th>
+              <th class="px-4 py-3 text-right text-[#8b949e] font-medium">Claude €</th>
+              <th class="px-4 py-3 text-right text-[#8b949e] font-medium">VPS €</th>
+              <th class="px-4 py-3 text-right text-[#8b949e] font-medium">Margen %</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-[#30363d]">
+            {% if system_costs %}
+              {% for s in system_costs %}
+              <tr class="hover:bg-[#21262d]/40">
+                <td class="px-4 py-3">
+                  <a href="/systems/{{ s.system_id }}" class="font-medium text-[#e6edf3] hover:text-blue-400 transition-colors">
+                    {{ s.system_name }}
+                  </a>
+                  <span class="ml-1 text-[10px] text-[#8b949e] font-mono">{{ s.system_type }}</span>
+                </td>
+                <td class="px-4 py-3 text-[#8b949e]">{{ s.client_name }}</td>
+                <td class="px-4 py-3 text-right font-mono text-[#8b949e]">{{ "{:,}".format(s.haiku_tokens) }}</td>
+                <td class="px-4 py-3 text-right font-mono text-[#8b949e]">{{ "{:,}".format(s.sonnet_tokens) }}</td>
+                <td class="px-4 py-3 text-right font-mono text-orange-400">€{{ "%.4f"|format(s.claude_total_eur) }}</td>
+                <td class="px-4 py-3 text-right font-mono text-[#8b949e]">€{{ "%.0f"|format(s.vps_eur) }}</td>
+                <td class="px-4 py-3 text-right">
+                  <span class="font-mono text-xs px-2 py-0.5 rounded-full
+                    {% if s.margin_pct >= 60 %}bg-green-900/40 text-green-400
+                    {% elif s.margin_pct >= 40 %}bg-yellow-900/40 text-yellow-400
+                    {% else %}bg-red-900/40 text-red-400{% endif %}">
+                    {{ "%.1f"|format(s.margin_pct) }}%
+                  </span>
+                </td>
+              </tr>
+              {% endfor %}
+            {% else %}
+              <tr>
+                <td colspan="7" class="px-4 py-8 text-center text-[#8b949e]">Sin datos este mes</td>
+              </tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  {# ── n8n sidebar ──────────────────────────────────────────── #}
+  <div class="space-y-4">
+    <h2 class="text-sm font-semibold text-[#e6edf3]">Estado n8n</h2>
+
+    {% if n8n.connected %}
+    <div class="grid grid-cols-2 gap-2">
+      <div class="card px-3 py-2">
+        <p class="text-[10px] text-[#8b949e]">Workflows activos</p>
+        <p class="text-lg font-bold font-mono text-[#e6edf3]">{{ n8n.active_workflows }}/{{ n8n.total_workflows }}</p>
+      </div>
+      <div class="card px-3 py-2">
+        <p class="text-[10px] text-[#8b949e]">Tasa de error</p>
+        <p class="text-lg font-bold font-mono {% if n8n.error_rate_pct > 10 %}text-red-400{% else %}text-green-400{% endif %}">
+          {{ n8n.error_rate_pct }}%
+        </p>
+      </div>
+    </div>
+
+    <div class="card divide-y divide-[#30363d]">
+      <div class="px-4 py-2 border-b border-[#30363d]">
+        <p class="text-xs font-semibold text-[#8b949e]">Últimas ejecuciones</p>
+      </div>
+      {% for ex in n8n.executions %}
+      <div class="px-4 py-2 flex items-center justify-between">
+        <span class="text-xs text-[#8b949e] truncate max-w-32">{{ ex.workflowData.name if ex.workflowData else '—' }}</span>
+        <span class="text-[10px] font-mono {% if ex.status == 'success' %}text-green-400{% elif ex.status == 'error' %}text-red-400{% else %}text-[#8b949e]{% endif %}">
+          {{ ex.status }}
+        </span>
+      </div>
+      {% else %}
+      <div class="px-4 py-4 text-center text-xs text-[#8b949e]">Sin ejecuciones recientes</div>
+      {% endfor %}
+    </div>
+
+    {% else %}
+    <div class="card p-4">
+      <p class="text-xs text-[#8b949e] mb-2">n8n no configurado.</p>
+      <p class="text-[10px] text-[#8b949e]">Añade <span class="font-mono">N8N_API_KEY</span> al .env para ver el estado de los workflows.</p>
+    </div>
+    {% endif %}
+
+    {# Claude pricing reference #}
+    <div class="card p-4">
+      <p class="text-xs font-semibold text-[#8b949e] mb-3">Precios Claude (referencia)</p>
+      <div class="space-y-1.5">
+        <div class="flex justify-between text-xs">
+          <span class="text-[#8b949e]">Haiku 4.5</span>
+          <span class="font-mono text-[#e6edf3]">€0.35/1M tokens</span>
+        </div>
+        <div class="flex justify-between text-xs">
+          <span class="text-[#8b949e]">Sonnet 4.6</span>
+          <span class="font-mono text-[#e6edf3]">€4.50/1M tokens</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}

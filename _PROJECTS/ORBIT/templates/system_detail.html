@@ -1,0 +1,292 @@
+{% extends "base.html" %}
+{% block title %}{{ system.name }}{% endblock %}
+{% block page_title %}{{ system.name }}{% endblock %}
+
+{% block content %}
+
+{# ── System header ─────────────────────────────────────────── #}
+<div class="card p-5 mb-5">
+  <div class="flex items-center justify-between">
+    <div class="flex items-center gap-4">
+      <div class="w-12 h-12 rounded-xl flex items-center justify-center text-xl
+        {% if system.status == 'operativo' %}bg-green-900/40 text-green-400
+        {% elif system.status == 'caido' %}bg-red-900/40 text-red-400
+        {% elif system.status == 'degradado' %}bg-yellow-900/40 text-yellow-400
+        {% elif system.status == 'en_construccion' %}bg-purple-900/40 text-purple-400
+        {% else %}bg-[#21262d] text-[#8b949e]{% endif %}">
+        {% if system.status == 'operativo' %}✓
+        {% elif system.status == 'caido' %}✗
+        {% elif system.status == 'degradado' %}~
+        {% elif system.status == 'en_construccion' %}⟳
+        {% else %}—{% endif %}
+      </div>
+      <div>
+        <h2 class="text-lg font-semibold text-[#e6edf3]">{{ system.name }}</h2>
+        <p class="text-sm text-[#8b949e] font-mono">{{ system.system_type }}</p>
+      </div>
+    </div>
+    <div class="text-right">
+      <span class="text-lg font-bold font-mono
+        {% if system.status == 'operativo' %}text-green-400
+        {% elif system.status == 'caido' %}text-red-400
+        {% elif system.status == 'degradado' %}text-yellow-400
+        {% elif system.status == 'en_construccion' %}text-purple-400
+        {% else %}text-[#8b949e]{% endif %}">
+        {{ system.status.upper() }}
+      </span>
+      {% if system.last_heartbeat_at %}
+      <p class="text-xs text-[#8b949e] font-mono mt-0.5">Último heartbeat: {{ system.last_heartbeat_at.strftime('%d/%m/%Y %H:%M') }}</p>
+      {% endif %}
+    </div>
+  </div>
+
+  {# Change status manually #}
+  <form action="/systems/{{ system.id }}/status" method="POST" class="mt-4 pt-4 border-t border-[#30363d] flex items-center gap-3">
+    <label class="text-xs text-[#8b949e]">Cambiar estado:</label>
+    <select name="status" class="text-xs bg-[#0d1117] border border-[#30363d] text-[#e6edf3] rounded px-2 py-1 outline-none">
+      {% for s in ['operativo', 'degradado', 'caido', 'en_construccion', 'mantenimiento'] %}
+      <option value="{{ s }}" {% if s == system.status %}selected{% endif %}>{{ s }}</option>
+      {% endfor %}
+    </select>
+    <button type="submit" class="text-xs text-blue-400 hover:text-blue-300 transition-colors px-3 py-1 border border-blue-800/50 rounded">
+      Aplicar
+    </button>
+  </form>
+</div>
+
+<div class="grid grid-cols-1 xl:grid-cols-3 gap-5">
+
+  {# ── Heartbeat history ────────────────────────────────────── #}
+  <div class="xl:col-span-2 space-y-5">
+
+    {# Last heartbeat metrics #}
+    {% if heartbeats %}
+    {% set last = heartbeats[0] %}
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div class="card px-4 py-3">
+        <p class="text-xs text-[#8b949e] mb-1">CPU</p>
+        <p class="text-xl font-bold font-mono {% if last.cpu_pct and last.cpu_pct > 85 %}text-red-400{% elif last.cpu_pct and last.cpu_pct > 70 %}text-yellow-400{% else %}text-green-400{% endif %}">
+          {% if last.cpu_pct %}{{ "%.1f"|format(last.cpu_pct) }}%{% else %}—{% endif %}
+        </p>
+      </div>
+      <div class="card px-4 py-3">
+        <p class="text-xs text-[#8b949e] mb-1">RAM</p>
+        <p class="text-xl font-bold font-mono {% if last.ram_pct and last.ram_pct > 90 %}text-red-400{% elif last.ram_pct and last.ram_pct > 75 %}text-yellow-400{% else %}text-green-400{% endif %}">
+          {% if last.ram_pct %}{{ "%.1f"|format(last.ram_pct) }}%{% else %}—{% endif %}
+        </p>
+      </div>
+      <div class="card px-4 py-3">
+        <p class="text-xs text-[#8b949e] mb-1">Disco</p>
+        <p class="text-xl font-bold font-mono {% if last.disk_pct and last.disk_pct > 80 %}text-red-400{% elif last.disk_pct and last.disk_pct > 65 %}text-yellow-400{% else %}text-green-400{% endif %}">
+          {% if last.disk_pct %}{{ "%.1f"|format(last.disk_pct) }}%{% else %}—{% endif %}
+        </p>
+      </div>
+      <div class="card px-4 py-3">
+        <p class="text-xs text-[#8b949e] mb-1">Agent</p>
+        <p class="text-xs font-mono text-[#e6edf3] mt-2">{{ last.agent_version or '—' }}</p>
+      </div>
+    </div>
+
+    {# Services status from last heartbeat #}
+    <div class="card p-4">
+      <h3 class="text-sm font-semibold text-[#e6edf3] mb-3">Estado de servicios</h3>
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {% for name, up in [('FastAPI', last.fastapi_up), ('n8n', last.n8n_up), ('PostgreSQL', last.postgresql_up), ('Telegram Bot', last.telegram_bot_up)] %}
+        <div class="flex items-center gap-2">
+          <span class="status-dot {% if up %}bg-green-500{% elif up == false %}bg-red-500{% else %}bg-[#8b949e]{% endif %}"></span>
+          <span class="text-xs text-[#8b949e]">{{ name }}</span>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    {# Uptime chart #}
+    <div class="card p-4">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="text-sm font-semibold text-[#e6edf3]">Uptime — últimos 30 días</h3>
+        <span class="text-xs text-[#8b949e] font-mono" id="avg-uptime">Cargando...</span>
+      </div>
+      <canvas id="uptimeChart" height="80"></canvas>
+    </div>
+
+    {# CPU/RAM chart #}
+    <div class="card p-4">
+      <h3 class="text-sm font-semibold text-[#e6edf3] mb-3">CPU & RAM — últimos 30 días</h3>
+      <canvas id="resourceChart" height="80"></canvas>
+    </div>
+
+    {# Heartbeat log table #}
+    <div class="card overflow-hidden">
+      <div class="px-4 py-3 border-b border-[#30363d]">
+        <h3 class="text-sm font-semibold text-[#e6edf3]">Log de heartbeats</h3>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full text-xs">
+          <thead>
+            <tr class="border-b border-[#30363d]">
+              <th class="px-4 py-2 text-left text-[#8b949e] font-medium">Tiempo</th>
+              <th class="px-4 py-2 text-left text-[#8b949e] font-medium">Estado</th>
+              <th class="px-4 py-2 text-left text-[#8b949e] font-medium">CPU</th>
+              <th class="px-4 py-2 text-left text-[#8b949e] font-medium">RAM</th>
+              <th class="px-4 py-2 text-left text-[#8b949e] font-medium">Disco</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-[#30363d]">
+            {% for hb in heartbeats %}
+            <tr class="hover:bg-[#21262d]/50">
+              <td class="px-4 py-2 font-mono text-[#8b949e]">{{ hb.received_at.strftime('%d/%m %H:%M:%S') }}</td>
+              <td class="px-4 py-2">
+                <span class="font-mono {% if hb.agent_status == 'healthy' %}text-green-400{% elif hb.agent_status == 'critical' %}text-red-400{% else %}text-yellow-400{% endif %}">
+                  {{ hb.agent_status or '—' }}
+                </span>
+              </td>
+              <td class="px-4 py-2 font-mono text-[#8b949e]">{% if hb.cpu_pct %}{{ "%.1f"|format(hb.cpu_pct) }}%{% else %}—{% endif %}</td>
+              <td class="px-4 py-2 font-mono text-[#8b949e]">{% if hb.ram_pct %}{{ "%.1f"|format(hb.ram_pct) }}%{% else %}—{% endif %}</td>
+              <td class="px-4 py-2 font-mono text-[#8b949e]">{% if hb.disk_pct %}{{ "%.1f"|format(hb.disk_pct) }}%{% else %}—{% endif %}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="5" class="px-4 py-6 text-center text-[#8b949e]">Sin heartbeats registrados todavía</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  {# ── Alerts sidebar ───────────────────────────────────────── #}
+  <div>
+    <h3 class="text-sm font-semibold text-[#e6edf3] mb-3">Alertas del sistema</h3>
+    <div class="card divide-y divide-[#30363d]">
+      {% if alerts %}
+        {% for alert in alerts %}
+        <div class="px-4 py-3">
+          <div class="flex items-start gap-2">
+            <span class="text-sm leading-none mt-0.5
+              {% if alert.severity == 'critica' %}text-red-400
+              {% elif alert.severity == 'alta' %}text-orange-400
+              {% elif alert.severity == 'media' %}text-yellow-400
+              {% elif alert.status == 'resolved' %}text-green-600
+              {% else %}text-[#8b949e]{% endif %}">●</span>
+            <div class="min-w-0">
+              <p class="text-xs text-[#e6edf3] break-words">{{ alert.title }}</p>
+              <p class="text-[10px] text-[#8b949e] font-mono mt-0.5">{{ alert.created_at.strftime('%d/%m %H:%M') }} · {{ alert.status }}</p>
+            </div>
+          </div>
+        </div>
+        {% endfor %}
+      {% else %}
+        <div class="px-4 py-6 text-center">
+          <p class="text-xs text-green-400">Sin alertas registradas</p>
+        </div>
+      {% endif %}
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(async function () {
+  const systemId = "{{ system.id }}";
+  let uptimeChart, resourceChart;
+
+  const CHART_DEFAULTS = {
+    responsive: true,
+    maintainAspectRatio: true,
+    plugins: { legend: { display: false }, tooltip: { mode: "index", intersect: false } },
+    scales: {
+      x: { grid: { color: "#21262d" }, ticks: { color: "#8b949e", font: { family: "JetBrains Mono", size: 10 } } },
+      y: { grid: { color: "#21262d" }, ticks: { color: "#8b949e", font: { family: "JetBrains Mono", size: 10 } }, min: 0, max: 100 },
+    },
+  };
+
+  async function loadCharts() {
+    try {
+      const res = await fetch(`/api/systems/${systemId}/uptime?days=30`, {
+        credentials: "same-origin",
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+
+      // ── Uptime chart ──────────────────────────────────────────
+      const avgUptime = data.uptime.length
+        ? (data.uptime.reduce((a, b) => a + b, 0) / data.uptime.length).toFixed(1)
+        : null;
+      const avgEl = document.getElementById("avg-uptime");
+      if (avgEl) avgEl.textContent = avgUptime !== null ? `Promedio: ${avgUptime}%` : "Sin datos";
+
+      const uptimeCtx = document.getElementById("uptimeChart");
+      if (uptimeCtx) {
+        if (uptimeChart) uptimeChart.destroy();
+        uptimeChart = new Chart(uptimeCtx, {
+          type: "bar",
+          data: {
+            labels: data.labels,
+            datasets: [{
+              label: "Uptime %",
+              data: data.uptime,
+              backgroundColor: data.uptime.map(v =>
+                v >= 95 ? "rgba(34,197,94,0.6)" : v >= 80 ? "rgba(234,179,8,0.6)" : "rgba(239,68,68,0.6)"
+              ),
+              borderRadius: 3,
+              borderSkipped: false,
+            }],
+          },
+          options: { ...CHART_DEFAULTS },
+        });
+      }
+
+      // ── CPU / RAM chart ───────────────────────────────────────
+      const resourceCtx = document.getElementById("resourceChart");
+      if (resourceCtx) {
+        if (resourceChart) resourceChart.destroy();
+        resourceChart = new Chart(resourceCtx, {
+          type: "line",
+          data: {
+            labels: data.labels,
+            datasets: [
+              {
+                label: "CPU %",
+                data: data.cpu,
+                borderColor: "#3b82f6",
+                backgroundColor: "rgba(59,130,246,0.1)",
+                borderWidth: 1.5,
+                pointRadius: 2,
+                fill: true,
+                tension: 0.3,
+              },
+              {
+                label: "RAM %",
+                data: data.ram,
+                borderColor: "#a855f7",
+                backgroundColor: "rgba(168,85,247,0.1)",
+                borderWidth: 1.5,
+                pointRadius: 2,
+                fill: true,
+                tension: 0.3,
+              },
+            ],
+          },
+          options: {
+            ...CHART_DEFAULTS,
+            plugins: {
+              legend: {
+                display: true,
+                labels: { color: "#8b949e", font: { family: "JetBrains Mono", size: 10 }, boxWidth: 10 },
+              },
+              tooltip: { mode: "index", intersect: false },
+            },
+          },
+        });
+      }
+    } catch (e) {
+      console.error("[orbit] chart load error", e);
+    }
+  }
+
+  loadCharts();
+})();
+</script>
+{% endblock %}

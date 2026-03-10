@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}Nuevo Sistema{% endblock %}
+{% block page_title %}Nuevo Sistema{% endblock %}
+
+{% block content %}
+<div class="max-w-xl">
+  <div class="card p-6">
+    {% if error %}
+    <div class="mb-4 px-3 py-2 rounded-lg bg-red-900/30 border border-red-800/50 text-sm text-red-400">
+      {{ error }}
+    </div>
+    {% endif %}
+
+    <form method="POST" action="/systems/new" class="space-y-4">
+      <div>
+        <label class="block text-xs font-medium text-[#8b949e] mb-1.5">Cliente *</label>
+        <select name="client_id" required>
+          <option value="">Seleccionar cliente...</option>
+          {% for c in clients %}
+          <option value="{{ c.id }}" {% if selected_client_id and c.id == selected_client_id %}selected{% endif %}>
+            {{ c.name }}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div>
+        <label class="block text-xs font-medium text-[#8b949e] mb-1.5">Nombre del sistema *</label>
+        <input type="text" name="name" required placeholder="Resona, NEXO, Asistente Personal...">
+      </div>
+
+      <div>
+        <label class="block text-xs font-medium text-[#8b949e] mb-1.5">Tipo de sistema</label>
+        <select name="system_type">
+          <option value="resona">Resona — Respuestas a reseñas</option>
+          <option value="nexo">NEXO — Investment Copilot</option>
+          <option value="asistente_personal">Asistente Personal</option>
+          <option value="ocr_facturas">OCR Facturas</option>
+          <option value="custom">Custom</option>
+        </select>
+      </div>
+
+      <div>
+        <label class="block text-xs font-medium text-[#8b949e] mb-1.5">URL base del sistema</label>
+        <input type="text" name="base_url" placeholder="https://resona.cliente.aurenix.cloud">
+        <p class="text-[10px] text-[#8b949e] mt-1">URL donde está desplegado el sistema en el VPS del cliente.</p>
+      </div>
+
+      <div>
+        <label class="block text-xs font-medium text-[#8b949e] mb-1.5">Notas internas</label>
+        <textarea name="notes" rows="2" placeholder="Observaciones sobre este sistema..."></textarea>
+      </div>
+
+      <div class="flex items-center gap-3 pt-2">
+        <button type="submit"
+          class="px-4 py-2 rounded-lg text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 transition-colors">
+          Crear sistema
+        </button>
+        <a href="/" class="text-sm text-[#8b949e] hover:text-[#e6edf3] transition-colors">Cancelar</a>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

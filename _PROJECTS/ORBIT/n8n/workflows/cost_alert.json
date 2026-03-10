@@ -1,0 +1,122 @@
+{
+  "name": "Orbit — Monthly Cost Report",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9 1 * *"
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "1st of month 09:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "url": "=https://orbit.aurenix.cloud/api/costs/summary",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "X-Orbit-Key", "value": "=0a901127657b16b169668b13925ca4019b814b092e8a51f9cedf67f4ecc78fb8" }
+          ]
+        },
+        "options": { "timeout": 15000 }
+      },
+      "id": "get-cost-summary",
+      "name": "GET /api/costs/summary",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [460, 300],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\n\nif (!data.month) {\n  return [{ json: { error: true, message: 'No se pudo obtener datos de costes' } }];\n}\n\nconst marginEmoji = data.margin_pct >= 60 ? '🟢' : data.margin_pct >= 40 ? '🟡' : '🔴';\n\nlet clientLines = '';\nif (data.clients && data.clients.length > 0) {\n  clientLines = data.clients.map(c => {\n    const m = c.margin_pct >= 60 ? '🟢' : c.margin_pct >= 40 ? '🟡' : '🔴';\n    return `${m} *${c.client_name}*: €${c.mrr_eur.toFixed(0)} MRR → margen ${c.margin_pct.toFixed(1)}%`;\n  }).join('\\n');\n} else {\n  clientLines = '_Sin datos de clientes este mes_';\n}\n\nconst message = `📊 *Orbit — Resumen mensual ${data.month}*\\n\\n` +\n  `💶 MRR total: €${data.total_mrr_eur.toFixed(0)}\\n` +\n  `💸 Coste total: €${data.total_cost_eur.toFixed(2)}\\n` +\n  `${marginEmoji} Margen neto: €${data.total_margin_eur.toFixed(0)} (${data.margin_pct}%)\\n\\n` +\n  `*Por cliente:*\\n${clientLines}\\n\\n` +\n  `Ver detalle: https://orbit.aurenix.cloud/costs`;\n\nreturn [{ json: { message, error: false } }];"
+      },
+      "id": "build-message",
+      "name": "Build Telegram message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "chatId": "=5529992654",
+        "text": "={{ $json.message }}",
+        "additionalFields": { "parse_mode": "Markdown" },
+        "credentials": { "telegramApi": { "id": "orbit-telegram", "name": "Orbit Telegram" } }
+      },
+      "id": "telegram-report",
+      "name": "Telegram — cost report",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "margin-low",
+              "leftValue": "={{ $('GET /api/costs/summary').item.json.margin_pct }}",
+              "rightValue": 40,
+              "operator": { "type": "number", "operation": "lt" }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "margin-check",
+      "name": "Margen < 40%?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "chatId": "=5529992654",
+        "text": "=⚠️ *Orbit — Margen crítico*\n\nEl margen de este mes está por debajo del 40%.\n\nRevisa costes en: https://orbit.aurenix.cloud/costs",
+        "additionalFields": { "parse_mode": "Markdown" },
+        "credentials": { "telegramApi": { "id": "orbit-telegram", "name": "Orbit Telegram" } }
+      },
+      "id": "telegram-margin-alert",
+      "name": "Telegram — margen bajo",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1340, 200]
+    }
+  ],
+  "connections": {
+    "1st of month 09:00": {
+      "main": [[{ "node": "GET /api/costs/summary", "type": "main", "index": 0 }]]
+    },
+    "GET /api/costs/summary": {
+      "main": [[{ "node": "Build Telegram message", "type": "main", "index": 0 }]]
+    },
+    "Build Telegram message": {
+      "main": [[{ "node": "Telegram — cost report", "type": "main", "index": 0 }]]
+    },
+    "Telegram — cost report": {
+      "main": [[{ "node": "Margen < 40%?", "type": "main", "index": 0 }]]
+    },
+    "Margen < 40%?": {
+      "main": [
+        [{ "node": "Telegram — margen bajo", "type": "main", "index": 0 }],
+        []
+      ]
+    }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "staticData": null,
+  "tags": ["orbit", "costs"],
+  "pinData": {}
+}

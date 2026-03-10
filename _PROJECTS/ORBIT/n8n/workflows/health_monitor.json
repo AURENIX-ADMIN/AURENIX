@@ -1,0 +1,153 @@
+{
+  "name": "Orbit — Health Monitor",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [{ "field": "minutes", "minutesInterval": 5 }]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Every 5 minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "url": "=https://orbit.aurenix.cloud/health",
+        "options": { "timeout": 8000 }
+      },
+      "id": "check-orbit-health",
+      "name": "GET /health",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [460, 300],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "status-check",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "ok",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "is-orbit-up",
+      "name": "Orbit OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "url": "=https://orbit.aurenix.cloud/alerts/api/open",
+        "options": {
+          "timeout": 8000,
+          "response": { "response": { "fullResponse": false } }
+        }
+      },
+      "id": "get-open-alerts",
+      "name": "GET open alerts",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [900, 200],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const alerts = $input.all();\nconst critical = alerts.filter(a => {\n  const item = a.json;\n  return item.severity === 'critica' || item.severity === 'alta';\n});\nreturn [{ json: { count: critical.length, critical_alerts: critical } }];"
+      },
+      "id": "filter-critical",
+      "name": "Filter critical",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 200]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "has-critical",
+              "leftValue": "={{ $json.count }}",
+              "rightValue": 0,
+              "operator": { "type": "number", "operation": "gt" }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "has-critical-alerts",
+      "name": "Has critical alerts?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1340, 200]
+    },
+    {
+      "parameters": {
+        "chatId": "=5529992654",
+        "text": "=🔴 *Orbit — Alerta crítica activa*\n\n{{ $json.count }} alerta(s) crítica(s)/alta(s) sin resolver.\n\nRevisa el dashboard: https://orbit.aurenix.cloud/alerts",
+        "additionalFields": { "parse_mode": "Markdown" },
+        "credentials": { "telegramApi": { "id": "orbit-telegram", "name": "Orbit Telegram" } }
+      },
+      "id": "telegram-critical-alert",
+      "name": "Telegram — alertas críticas",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1560, 100]
+    },
+    {
+      "parameters": {
+        "chatId": "=5529992654",
+        "text": "=🚨 *Orbit Dashboard caído*\n\nNo se puede conectar con https://orbit.aurenix.cloud\n\nRevisa el servidor Hostinger inmediatamente.",
+        "additionalFields": { "parse_mode": "Markdown" },
+        "credentials": { "telegramApi": { "id": "orbit-telegram", "name": "Orbit Telegram" } }
+      },
+      "id": "telegram-orbit-down",
+      "name": "Telegram — Orbit caído",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [900, 420]
+    }
+  ],
+  "connections": {
+    "Every 5 minutes": {
+      "main": [[{ "node": "GET /health", "type": "main", "index": 0 }]]
+    },
+    "GET /health": {
+      "main": [[{ "node": "Orbit OK?", "type": "main", "index": 0 }]]
+    },
+    "Orbit OK?": {
+      "main": [
+        [{ "node": "GET open alerts", "type": "main", "index": 0 }],
+        [{ "node": "Telegram — Orbit caído", "type": "main", "index": 0 }]
+      ]
+    },
+    "GET open alerts": {
+      "main": [[{ "node": "Filter critical", "type": "main", "index": 0 }]]
+    },
+    "Filter critical": {
+      "main": [[{ "node": "Has critical alerts?", "type": "main", "index": 0 }]]
+    },
+    "Has critical alerts?": {
+      "main": [
+        [{ "node": "Telegram — alertas críticas", "type": "main", "index": 0 }],
+        []
+      ]
+    }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "staticData": null,
+  "tags": ["orbit", "monitoring"],
+  "pinData": {}
+}

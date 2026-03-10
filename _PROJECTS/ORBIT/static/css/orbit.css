@@ -1,0 +1,42 @@
+/* Orbit — Custom styles */
+
+/* Scrollbar styling */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #30363d; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #484f58; }
+
+/* Card glow variants */
+.card-glow-green { box-shadow: 0 0 0 1px rgba(16, 185, 129, 0.15), 0 0 20px rgba(16, 185, 129, 0.05); }
+.card-glow-red   { box-shadow: 0 0 0 1px rgba(239, 68, 68, 0.2), 0 0 20px rgba(239, 68, 68, 0.08); }
+.card-glow-yellow{ box-shadow: 0 0 0 1px rgba(245, 158, 11, 0.15), 0 0 20px rgba(245, 158, 11, 0.05); }
+
+/* Pulse animation for operational status dot */
+@keyframes pulse-green {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+.pulse-green { animation: pulse-green 2s ease-in-out infinite; }
+
+/* Form inputs consistent style */
+input[type="text"], input[type="email"], input[type="password"],
+input[type="number"], input[type="date"], textarea, select {
+  background: #0d1117;
+  border: 1px solid #30363d;
+  color: #e6edf3;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.15s;
+  width: 100%;
+}
+input:focus, textarea:focus, select:focus {
+  border-color: #2563eb;
+}
+
+/* Monospace data */
+.data-mono {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+}
