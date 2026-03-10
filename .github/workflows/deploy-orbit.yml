@@ -1,0 +1,95 @@
+name: Deploy Orbit
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '_PROJECTS/ORBIT/**'
+      - '.github/workflows/deploy-orbit.yml'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Build & Deploy Orbit
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Deploy to VPS
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VPS_IP }}
+          username: root
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            set -e
+
+            APP_DIR=/opt/orbit
+
+            # Pull latest code
+            if [ -d "$APP_DIR" ]; then
+              cd "$APP_DIR"
+              git pull origin main
+            else
+              git clone /data/git-repos/aurenix.git "$APP_DIR"
+            fi
+
+            # Install/update Python deps
+            cd "$APP_DIR/_PROJECTS/ORBIT"
+
+            if [ ! -d "venv" ]; then
+              python3.11 -m venv venv
+            fi
+
+            source venv/bin/activate
+            pip install -r requirements.txt --quiet
+
+            # Run DB migrations if alembic is configured
+            # alembic upgrade head
+
+            # Restart service
+            systemctl restart orbit 2>/dev/null || {
+              # First deploy: create systemd service
+              cp orbit.service /etc/systemd/system/orbit.service
+              systemctl daemon-reload
+              systemctl enable orbit
+              systemctl start orbit
+            }
+
+            sleep 3
+            systemctl is-active --quiet orbit && echo "✅ Orbit running" || { echo "❌ Orbit failed to start"; exit 1; }
+
+      - name: Health check
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VPS_IP }}
+          username: root
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            curl -sf http://localhost:8003/health || { echo "❌ Health check failed"; exit 1; }
+            echo "✅ Health check passed"
+
+      - name: Notify Telegram on success
+        if: success()
+        uses: appleboy/telegram-action@master
+        with:
+          to: ${{ secrets.TELEGRAM_ID_JOSE }}
+          token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          message: |
+            ✅ *Orbit deployado*
+            Commit: `${{ github.sha }}`
+            URL: https://orbit.aurenix.cloud
+
+      - name: Notify Telegram on failure
+        if: failure()
+        uses: appleboy/telegram-action@master
+        with:
+          to: ${{ secrets.TELEGRAM_ID_JOSE }}
+          token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          message: |
+            🚨 *DEPLOY FALLIDO — Orbit*
+            Commit: `${{ github.sha }}`
+            Revisa: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}

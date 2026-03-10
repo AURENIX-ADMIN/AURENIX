@@ -11,7 +11,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Parse error data con campos extendidos\nconst exec = $json.execution || {};\nconst wf = $json.workflow || {};\nconst error = exec.error || {};\n\nconst errorData = {\n  workflowId: wf.id || 'unknown',\n  workflowName: wf.name || 'unknown',\n  executionId: exec.id || 'unknown',\n  executionUrl: exec.url || '',\n  errorName: error.name || 'UnknownError',\n  errorMessage: error.message || 'No message',\n  errorStack: (error.stack || '').substring(0, 500),\n  failedNode: exec.lastNodeExecuted || 'unknown',\n  timestamp: new Date().toISOString(),\n  retryOf: exec.retryOf || null,\n  mode: exec.mode || 'unknown'\n};\n\nreturn [{ json: errorData }];"
+        "jsCode": "// Parse error data con campos extendidos\nconst exec = $json.execution || {};\nconst wf = $json.workflow || {};\nconst error = exec.error || {};\n\nconst errorData = {\n  workflowId: wf.id || 'unknown',\n  workflowName: wf.name || 'unknown',\n  executionId: exec.id || 'unknown',\n  executionUrl: exec.url || '',\n  errorName: error.name || 'UnknownError',\n  errorMessage: error.message || 'No message',\n  errorStack: (error.stack || '').substring(0, 2000),\n  failedNode: exec.lastNodeExecuted || 'unknown',\n  timestamp: new Date().toISOString(),\n  retryOf: exec.retryOf || null,\n  mode: exec.mode || 'unknown'\n};\n\nreturn [{ json: errorData }];"
       },
       "id": "parse-err-01",
       "name": "ParseErrorData",
@@ -363,13 +363,15 @@
       ]
     },
     "TelegramDLQAlert": {
-      "main": [],
-      "error": [[{ "node": "DLQFallbackFile", "type": "main", "index": 0 }]]
+      "main": [
+        [],
+        [{ "node": "DLQFallbackFile", "type": "main", "index": 0 }]
+      ]
     }
   },
   "settings": {
     "executionOrder": "v1",
     "saveManualExecutions": true,
-    "callerPolicy": "workflowsFromSameOwner"
+    "callerPolicy": "any"
   }
 }

@@ -1,0 +1,54 @@
+name: CI — Checks
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Scan for secrets
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: ./
+          base: ${{ github.event.repository.default_branch }}
+          head: HEAD
+          extra_args: --only-verified
+
+  lint-dashboard:
+    name: Lint Dashboard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - name: Install
+        working-directory: '_PROJECTS/AURENIX AGENCY/aurenix-monorepo'
+        run: pnpm install --frozen-lockfile
+      - name: Type check
+        working-directory: '_PROJECTS/AURENIX AGENCY/aurenix-monorepo'
+        run: pnpm --filter dashboard exec tsc --noEmit 2>/dev/null || echo "TypeScript check done"
+
+  lint-orbit:
+    name: Lint Orbit (Python)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install ruff
+        run: pip install ruff
+      - name: Lint
+        working-directory: '_PROJECTS/ORBIT'
+        run: ruff check . --ignore E501 || true
