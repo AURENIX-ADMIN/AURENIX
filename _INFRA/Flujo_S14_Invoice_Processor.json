@@ -1,0 +1,329 @@
+{
+  "name": "S14: Invoice Processor — Factura Inteligente",
+  "nodes": [
+    {
+      "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+      "name": "IMAP_Poll_Trigger",
+      "type": "n8n-nodes-base.emailReadImap",
+      "typeVersion": 2,
+      "position": [0, 300],
+      "credentials": {
+        "imap": {
+          "id": "ihH33xhzkDwRIFM9",
+          "name": "IMAP Jose AURENIX"
+        }
+      },
+      "parameters": {
+        "mailbox": "INBOX",
+        "action": "read",
+        "downloadAttachments": true,
+        "options": {
+          "allowUnauthorizedCerts": false
+        }
+      }
+    },
+    {
+      "id": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
+      "name": "FilterHasAttachments",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [220, 300],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-attach-001",
+              "leftValue": "={{ $json.attachments ? $json.attachments.length : 0 }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "c3d4e5f6-a7b8-9012-cdef-123456789012",
+      "name": "DeduplicateCheck",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [440, 300],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// All items mode\nconst staticData = $getWorkflowStaticData('global');\nconst processedIds = staticData.processedMessageIds || [];\nconst messageId = $json.messageId || $json.id || '';\n\nif (!messageId || processedIds.includes(messageId)) {\n  return []; // Already processed or no ID\n}\n\nreturn [{\n  json: {\n    ...$json,\n    _messageId: messageId,\n  }\n}];"
+      }
+    },
+    {
+      "id": "d4e5f6a7-b8c9-0123-defa-234567890123",
+      "name": "PrepareForGroq",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [660, 300],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// All items mode\nconst item = $json;\nconst attachments = item.attachments || [];\n\n// Find first valid attachment (pdf, jpg, jpeg, png, webp)\nconst validTypes = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png', 'image/webp'];\nconst attachment = attachments.find(a => validTypes.includes(a.mimeType?.toLowerCase()) || \n  ['pdf','jpg','jpeg','png','webp'].some(ext => (a.name||'').toLowerCase().endsWith('.'+ext)));\n\nif (!attachment) return [];\n\n// Get binary data - in n8n, attachment comes as base64 in attachment.content\nconst base64Data = attachment.content || '';\nconst mimeType = attachment.mimeType || 'image/jpeg';\nconst attachmentType = mimeType.includes('pdf') ? 'pdf' : 'image';\n\nreturn [{\n  json: {\n    email_from: item.from?.value?.[0]?.address || item.from || '',\n    email_subject: item.subject || '',\n    email_message_id: item._messageId || item.messageId || '',\n    attachment_type: attachmentType,\n    attachment_name: attachment.name || 'attachment',\n    base64_data: base64Data,\n    mime_type: mimeType,\n    _messageId: item._messageId || '',\n  }\n}];"
+      }
+    },
+    {
+      "id": "e5f6a7b8-c9d0-1234-efab-345678901234",
+      "name": "GroqVisionAPI",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [880, 300],
+      "onError": "continueErrorOutput",
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $credentials.groqApi.apiKey }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"llama-3.2-90b-vision-preview\",\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"Eres un extractor de datos de facturas. Devuelve SIEMPRE un JSON válido con estos campos: vendor_name, vendor_cif, invoice_number, invoice_date (YYYY-MM-DD), due_date (YYYY-MM-DD), subtotal (número), tax_rate (número, ej: 21), tax_amount (número), total (número), currency (EUR/USD), payment_concept, bank_iban, line_items (array de {description, quantity, unit_price, total}), confidence_score (0.0-1.0)\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": [\n        {\n          \"type\": \"image_url\",\n          \"image_url\": {\n            \"url\": \"={{ 'data:' + $json.mime_type + ';base64,' + $json.base64_data }}\"\n          }\n        },\n        {\n          \"type\": \"text\",\n          \"text\": \"Extrae todos los datos de esta factura y devuélvelos como JSON.\"\n        }\n      ]\n    }\n  ],\n  \"max_tokens\": 1024,\n  \"temperature\": 0.1\n}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "credentials": {
+        "groqApi": {
+          "id": "3xX3Du0zMIty4shQ",
+          "name": "Groq account"
+        }
+      }
+    },
+    {
+      "id": "f6a7b8c9-d0e1-2345-fabc-456789012345",
+      "name": "ParseInvoiceData",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1100, 300],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// All items mode\nconst responseContent = $json.choices?.[0]?.message?.content || '{}';\n\nlet extracted = {};\ntry {\n  extracted = JSON.parse(responseContent);\n} catch(e) {\n  // Try to extract JSON from markdown code block\n  const match = responseContent.match(/```(?:json)?\\n?([\\s\\S]*?)\\n?```/);\n  if (match) {\n    try { extracted = JSON.parse(match[1]); } catch(e2) {}\n  }\n}\n\nconst invoiceId = 'INV-' + Date.now();\nconst input = $('PrepareForGroq').first().json;\n\nreturn [{\n  json: {\n    invoice_id: invoiceId,\n    vendor_name: extracted.vendor_name || '',\n    vendor_cif: extracted.vendor_cif || '',\n    invoice_number: extracted.invoice_number || '',\n    invoice_date: extracted.invoice_date || null,\n    due_date: extracted.due_date || null,\n    subtotal: parseFloat(extracted.subtotal) || 0,\n    tax_rate: parseFloat(extracted.tax_rate) || 21,\n    tax_amount: parseFloat(extracted.tax_amount) || 0,\n    total: parseFloat(extracted.total) || 0,\n    currency: extracted.currency || 'EUR',\n    payment_concept: extracted.payment_concept || '',\n    bank_iban: extracted.bank_iban || '',\n    line_items: JSON.stringify(extracted.line_items || []),\n    confidence_score: parseFloat(extracted.confidence_score) || 0.5,\n    email_from: input.email_from,\n    email_subject: input.email_subject,\n    email_message_id: input.email_message_id,\n    attachment_type: input.attachment_type,\n    raw_llm_output: responseContent,\n    status: 'pending',\n    _messageId: input._messageId,\n  }\n}];"
+      }
+    },
+    {
+      "id": "a7b8c9d0-e1f2-3456-abcd-567890123456",
+      "name": "InsertInvoice",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1320, 300],
+      "onError": "continueErrorOutput",
+      "credentials": {
+        "postgres": {
+          "id": "POSTGRES_CREDENTIAL_ID",
+          "name": "PostgreSQL AURENIX VPS"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=INSERT INTO invoices (\n  invoice_id, vendor_name, vendor_cif, invoice_number, invoice_date, due_date,\n  subtotal, tax_rate, tax_amount, total, currency, payment_concept, bank_iban,\n  line_items, status, confidence_score, email_from, email_subject, email_message_id,\n  attachment_type, raw_llm_output\n) VALUES (\n  '{{ $json.invoice_id }}', '{{ $json.vendor_name.replace(/'/g, \"''\") }}', '{{ $json.vendor_cif }}',\n  '{{ $json.invoice_number }}',\n  {{ $json.invoice_date ? \"'\" + $json.invoice_date + \"'\" : 'NULL' }},\n  {{ $json.due_date ? \"'\" + $json.due_date + \"'\" : 'NULL' }},\n  {{ $json.subtotal }}, {{ $json.tax_rate }}, {{ $json.tax_amount }}, {{ $json.total }},\n  '{{ $json.currency }}', '{{ $json.payment_concept.replace(/'/g, \"''\") }}', '{{ $json.bank_iban }}',\n  '{{ $json.line_items }}'::jsonb, 'pending', {{ $json.confidence_score }},\n  '{{ $json.email_from.replace(/'/g, \"''\") }}', '{{ $json.email_subject.replace(/'/g, \"''\") }}', '{{ $json.email_message_id }}',\n  '{{ $json.attachment_type }}', '{{ $json.raw_llm_output.replace(/'/g, \"''\") }}'\n) RETURNING id, invoice_id;",
+        "options": {}
+      }
+    },
+    {
+      "id": "b8c9d0e1-f2a3-4567-bcde-678901234567",
+      "name": "TelegramNotify",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1540, 300],
+      "credentials": {
+        "telegramApi": {
+          "id": "j286Y4Q9S28CG36j",
+          "name": "IT_Ops"
+        }
+      },
+      "parameters": {
+        "chatId": "501092522",
+        "text": "=🧾 *FACTURA DETECTADA* [S14 Invoice Processor]\n\n*Proveedor:* {{ $json.vendor_name || 'Desconocido' }}\n*CIF:* {{ $json.vendor_cif || 'N/A' }}\n*Nº Factura:* {{ $json.invoice_number || 'N/A' }}\n*Fecha:* {{ $json.invoice_date || 'N/A' }}\n*Total:* {{ $json.total }} {{ $json.currency }}\n*Confianza IA:* {{ Math.round($json.confidence_score * 100) }}%\n\n*Email de:* {{ $json.email_from }}\n*Asunto:* {{ $json.email_subject }}\n\nID interno: `{{ $json.invoice_id }}`\nEstado: PENDIENTE DE REVISIÓN",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      }
+    },
+    {
+      "id": "c9d0e1f2-a3b4-5678-cdef-789012345678",
+      "name": "MarkProcessed",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1760, 300],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// All items mode\nconst staticData = $getWorkflowStaticData('global');\nconst processedIds = staticData.processedMessageIds || [];\nconst messageId = $json._messageId || '';\n\nif (messageId && !processedIds.includes(messageId)) {\n  processedIds.push(messageId);\n  // Keep only last 1000 IDs\n  if (processedIds.length > 1000) processedIds.shift();\n  staticData.processedMessageIds = processedIds;\n}\n\nreturn [{ json: { success: true, invoice_id: $json.invoice_id } }];"
+      }
+    },
+    {
+      "id": "d0e1f2a3-b4c5-6789-defa-890123456789",
+      "name": "OnError",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [880, 560],
+      "parameters": {}
+    },
+    {
+      "id": "e1f2a3b4-c5d6-7890-efab-901234567890",
+      "name": "TelegramErrorAlert",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1100, 560],
+      "credentials": {
+        "telegramApi": {
+          "id": "j286Y4Q9S28CG36j",
+          "name": "IT_Ops"
+        }
+      },
+      "parameters": {
+        "chatId": "501092522",
+        "text": "=💀 *S14 Invoice Processor ERROR*\n\n*Workflow:* {{ $json.execution?.workflowData?.name || 'S14' }}\n*Nodo:* {{ $json.execution?.lastNodeExecuted || 'Desconocido' }}\n*Error:* {{ $json.execution?.error?.message || 'Error desconocido' }}\n\nRevisa el panel n8n para más detalles.",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "IMAP_Poll_Trigger": {
+      "main": [
+        [
+          {
+            "node": "FilterHasAttachments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FilterHasAttachments": {
+      "main": [
+        [
+          {
+            "node": "DeduplicateCheck",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "DeduplicateCheck": {
+      "main": [
+        [
+          {
+            "node": "PrepareForGroq",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PrepareForGroq": {
+      "main": [
+        [
+          {
+            "node": "GroqVisionAPI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GroqVisionAPI": {
+      "main": [
+        [
+          {
+            "node": "ParseInvoiceData",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "TelegramErrorAlert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ParseInvoiceData": {
+      "main": [
+        [
+          {
+            "node": "InsertInvoice",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "InsertInvoice": {
+      "main": [
+        [
+          {
+            "node": "TelegramNotify",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "TelegramErrorAlert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "TelegramNotify": {
+      "main": [
+        [
+          {
+            "node": "MarkProcessed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OnError": {
+      "main": [
+        [
+          {
+            "node": "TelegramErrorAlert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": ""
+  },
+  "tags": [],
+  "pinData": {}
+}
